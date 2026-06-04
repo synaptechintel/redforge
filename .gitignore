@@ -58,3 +58,6 @@ evidence/
 
 # OS
 Thumbs.db
+
+# one-time publish helper (token script)
+push-to-github.sh
