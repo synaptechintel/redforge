@@ -45,6 +45,8 @@ The launcher will:
 
 **Ollama is required** for the Red Team Leader features (`ollama run llama3.1:8b` or similar).
 
+**GitHub Codespaces**: This repo includes a `.devcontainer` (Rust + Node 20 + Python 3.12). Click "Code" → "Codespaces" on GitHub to start a full dev environment in the browser for editing.
+
 ## Current Status
 
 **v0.5.0 — Complete functional red team co-pilot (recon → assets → execution → leader)**
