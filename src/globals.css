@@ -1,0 +1,111 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 222 47% 6%;
+    --foreground: 210 40% 98%;
+
+    --card: 222 47% 8%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 222 47% 6%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 0 72% 51%; /* Strong red for danger/primary actions */
+    --primary-foreground: 210 40% 98%;
+
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 217 33% 14%;
+    --muted-foreground: 215 20% 65%;
+
+    --accent: 217 33% 17%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 217 33% 17%;
+    --input: 217 33% 17%;
+    --ring: 0 72% 51%;
+
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "kern" 1;
+  }
+}
+
+/* RedForge Operator Theme - Tactical but clean */
+.operator-panel {
+  @apply bg-card border border-border rounded-lg;
+}
+
+.tactical-header {
+  @apply bg-zinc-950 border-b border-border px-4 py-2 flex items-center justify-between;
+}
+
+.status-bar {
+  @apply bg-zinc-950 border-t border-border px-3 py-1 text-[11px] text-muted-foreground flex items-center gap-3;
+}
+
+/* Command palette */
+[cmdk-root] {
+  @apply bg-popover border border-border rounded-lg shadow-2xl;
+}
+
+/* Tables for recon/attack data */
+.data-table {
+  @apply text-sm;
+}
+
+.data-table th {
+  @apply text-muted-foreground font-medium text-xs uppercase tracking-wider bg-muted/50;
+}
+
+/* Warning / Authorization banners */
+.auth-banner {
+  @apply bg-red-950/60 border border-red-900 text-red-200 px-4 py-3 text-sm rounded-md;
+}
+
+.warning-banner {
+  @apply bg-amber-950/60 border border-amber-900 text-amber-200 px-3 py-2 text-xs rounded;
+}
+
+/* Technique / Tactic pills */
+.technique-pill {
+  @apply inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono border;
+}
+
+.tactic-initial-access { @apply border-red-500/40 text-red-400 bg-red-950/30; }
+.tactic-execution { @apply border-orange-500/40 text-orange-400 bg-orange-950/30; }
+/* Add more as needed */
+
+/* Terminal-like output */
+.execution-output {
+  @apply font-mono text-sm bg-black/60 p-3 rounded border border-border overflow-auto whitespace-pre-wrap;
+  max-height: 320px;
+}
+
+/* Scrollbars (dark tactical) */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-thumb {
+  background: #3f3f46;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #52525b;
+}

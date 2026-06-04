@@ -1,0 +1,15 @@
+This is a PLACEHOLDER file for the RedForge Windows sidecar (redforge-sidecar.exe).
+
+DO NOT RUN THIS FILE.
+
+To produce the real sidecar for Windows deployment:
+1. On a Windows machine with Python:
+   cd sidecar
+   pip install -r requirements.txt pyinstaller
+   pyinstaller redforge-sidecar.spec
+2. Copy dist/redforge-sidecar/redforge-sidecar.exe here (overwrite this file).
+3. Then run `npm run tauri build` from the redforge root (on Windows for best results).
+
+See README.md "Building the Windows Version" for details.
+
+RedForge v0.5.0 - For authorized use only.

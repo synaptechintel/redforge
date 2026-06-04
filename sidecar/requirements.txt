@@ -1,0 +1,29 @@
+# RedForge Python Sidecar
+# Core
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.6
+python-dotenv>=1.0
+aiosqlite>=0.20.0
+
+# Remote Execution (Practical Red Team Features)
+pywinrm>=0.4.3          # WinRM support
+impacket>=0.12.0        # PSExec, SMB, etc. (pure Python)
+
+# AI / Assistant (Ollama integration for natural guidance)
+ollama>=0.1.0           # Official Ollama Python client (optional but recommended)
+
+# ATT&CK + STIX
+stix2>=3.0.1
+# mitreattack-python>=3.0  # optional, can use raw stix2 + custom helpers
+
+# Recon (optional heavy lifting - user can install nmap + python-nmap separately)
+# python-nmap>=0.7.1
+# scapy>=2.5
+
+# Reporting
+# weasyprint>=62.0   # beautiful HTML→PDF (has system deps on Linux)
+reportlab>=4.2.0     # pure Python PDF generation (easier cross-platform for v1)
+
+# Utilities
+structlog>=25.1.0

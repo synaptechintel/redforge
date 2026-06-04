@@ -1,0 +1,6 @@
+#!/bin/sh
+# RedForge sidecar stub for build purposes.
+# Replace with real PyInstaller output (redforge-sidecar) for functional build.
+# This stub will cause sidecar to fail at runtime; see README for real build steps.
+echo "RedForge sidecar stub v0.5.0 - not functional. Build the real one with PyInstaller."
+sleep 999999
