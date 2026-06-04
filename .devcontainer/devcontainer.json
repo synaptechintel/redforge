@@ -1,0 +1,40 @@
+{
+  "name": "RedForge Dev Container",
+  "image": "mcr.microsoft.com/devcontainers/universal:2",
+  "features": {
+    "ghcr.io/devcontainers/features/rust:1": {
+      "version": "stable"
+    },
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "20"
+    },
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "3.12"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "tauri-apps.tauri-vscode",
+        "ms-python.python",
+        "dbaeumer.vscode-eslint",
+        "bradlc.vscode-tailwindcss",
+        "esbenp.prettier-vscode"
+      ]
+    }
+  },
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "forwardPorts": [1420, 8000],
+  "portsAttributes": {
+    "1420": {
+      "label": "Vite dev server (Tauri frontend)",
+      "onAutoForward": "notify"
+    },
+    "8000": {
+      "label": "Sidecar (FastAPI)",
+      "onAutoForward": "notify"
+    }
+  },
+  "remoteUser": "codespace"
+}
