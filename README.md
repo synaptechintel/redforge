@@ -11,9 +11,52 @@
 > - The developers provide this software **as-is** with **no warranty** and accept **zero liability** for misuse, damage, or legal consequences arising from its use.
 > - By using this software you acknowledge that you understand these restrictions and that you will only use it in lawful, authorized contexts.
 
+## Repository
+
+**https://github.com/synaptechintel/redforge**
+
+```bash
+git clone https://github.com/synaptechintel/redforge.git
+cd redforge
+
+# Easiest one-command start
+./launch.sh          # Linux / macOS
+# Windows: double-click RedForge.bat (or launch.ps1)
+```
+
+See the **One-click launch** and **How to Run** sections below.
+
+## Quick Start
+
+```bash
+git clone https://github.com/synaptechintel/redforge.git
+cd redforge
+
+# Linux / macOS
+./launch.sh
+
+# Windows (double-click)
+#   RedForge.bat     (or launch.ps1)
+```
+
+The launcher will:
+- Use the release build if you've built it (`src-tauri/target/release/...`)
+- Otherwise set up a Python venv for the sidecar and run `tauri dev`
+
+**Ollama is required** for the Red Team Leader features (`ollama run llama3.1:8b` or similar).
+
 ## Current Status
 
-**v0.4.0 — Practical Red Team Operator Tool**
+**v0.5.0 — Complete functional red team co-pilot (recon → assets → execution → leader)**
+
+The full loop is implemented and automatic:
+- Robust recon parsing + auto asset/credential ingestion
+- Real WinRM + full impacket PSExec (with output retrieval + pass-the-hash)
+- Reactive live suggestions driven by discovered assets
+- Structured kill chain plans importable to Chain Builder
+- One-click launchers + Windows build + installer packaging support
+
+Ready for local builds and authorized use / education.
 
 **Real Practical Capabilities Added**
 - **Real Local Execution** — Run commands locally with full output capture + auto-logging.
@@ -88,29 +131,16 @@ All actions stay on your machine. Use only for authorized testing.
 
 ## Getting Started (Development)
 
-### Prerequisites
+See the **Quick Start** section near the top for the easiest way to launch.
+
+### Prerequisites (for building / modifying)
 - Rust (stable)
 - Node 20+
-- Python 3.12+ (for sidecar, later)
+- Python 3.12+ (for sidecar)
 
-```bash
-# Easiest: 
-cd redforge
-npm install
-npm start          # or ./launch.sh   -- tries to launch with one command
+The root launchers (`launch.sh`, `RedForge.bat`, `launch.ps1`) are the recommended way to run during development — they handle the Python sidecar venv automatically on first run.
 
-# Or explicitly:
-npm run tauri dev          # Runs the desktop app (Linux/macOS dev targets)
-
-# On Windows (primary target)
-# Build with: npm run tauri build
-# Then double-click RedForge.bat or launch.ps1
-```
-
-The launchers (launch.sh, RedForge.bat, launch.ps1) make it one-click: they setup sidecar venv if needed and run the app (release if built, else dev).
-
-
-The first `tauri dev` will take a while (compiles Rust + starts Vite).
+The first `tauri dev` (or first run of the launcher in dev mode) will take a while because it compiles the Rust Tauri shell.
 
 ## Safety & OPSEC Features (Planned & Partial)
 
@@ -282,9 +312,11 @@ Ollama is **not** bundled. This is intentional for air-gapped and model choice f
 
 ## License & Usage
 
-This is currently a private/internal project. Do not redistribute without explicit permission.
+Licensed under the [MIT License](LICENSE).
 
-All red team tools carry inherent risk. Use responsibly.
+**This software is provided for authorized security professionals, red team operators, and students performing legal, permitted penetration testing and adversary emulation only.**
+
+All red team tools carry inherent risk. Use responsibly and only on systems you own or have explicit written authorization to test.
 
 ---
 
