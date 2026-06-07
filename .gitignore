@@ -61,3 +61,7 @@ Thumbs.db
 
 # one-time publish helper (token script)
 push-to-github.sh
+
+# One-click launcher state
+.redforge-setup-done
+sidecar/.venv/

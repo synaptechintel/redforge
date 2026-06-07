@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "start": "bash launch.sh || pwsh launch.ps1 || powershell -File launch.ps1 || echo 'Use ./launch.sh or RedForge.bat'"
+    "start": "npx tauri dev",
+    "setup": "node -e \"console.log('Use ./launch.sh (Linux/macOS) or RedForge.bat (Windows) for one-click setup + launch')\""
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.6",
