@@ -14,9 +14,11 @@ Set-Location $ProjectRoot
 function Test-Command($cmd) {
     $oldPref = $ErrorActionPreference
     $ErrorActionPreference = 'SilentlyContinue'
-    try { if (Get-Command $cmd) { return $true } } catch {}
-    $ErrorActionPreference = $oldPref
-    return $false
+    try {
+        return [bool](Get-Command $cmd -ErrorAction SilentlyContinue)
+    } finally {
+        $ErrorActionPreference = $oldPref
+    }
 }
 
 function Assert-Command($cmd, $installHint) {
@@ -40,7 +42,8 @@ Write-Host "Tools OK" -ForegroundColor Green
 
 Write-Host "[2/7] Ensuring Windows icons exist..." -ForegroundColor Yellow
 & "$PSScriptRoot\ensure-windows-icons.ps1"
-if ($LASTEXITCODE -ne 0) { throw "Icon generation failed" }
+if (-not $?) { throw "Icon generation failed" }
+$global:LASTEXITCODE = 0
 
 if (-not $SkipNpmInstall) {
     Write-Host "[3/7] Installing/updating frontend dependencies..." -ForegroundColor Yellow
