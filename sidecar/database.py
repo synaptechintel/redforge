@@ -74,7 +74,9 @@ class OperationUpdate(BaseModel):
 
 
 class TimelineEventCreate(BaseModel):
-    operation_id: str
+    # Optional in the payload because the URL `/api/operations/{op_id}/timeline`
+    # already specifies it; the route handler injects op_id before saving.
+    operation_id: str | None = None
     type: str = "manual"
     technique_id: str | None = None
     command: str | None = None
@@ -103,7 +105,8 @@ class TimelineEvent(BaseModel):
 
 # Attack Chain models
 class ChainCreate(BaseModel):
-    operation_id: str
+    # Optional in body because the URL `/api/operations/{op_id}/chains` provides it.
+    operation_id: str | None = None
     name: str
     description: str | None = None
 
