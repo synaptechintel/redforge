@@ -115,6 +115,19 @@ if (-not (Test-Path $iconIco)) {
     OK "Icons already present"
 }
 
+# ─── 3b. MITRE ATT&CK data ───────────────────────────────────────────
+Section "MITRE ATT&CK Data"
+
+$attackJson = Join-Path $ProjectRoot "sidecar\attack_data\enterprise-attack.json"
+if (-not (Test-Path $attackJson)) {
+    Info "Downloading MITRE ATT&CK Enterprise STIX bundle (~45 MB)..."
+    & $pythonCmd.Split()[0] "scripts\download-attack-data.py"
+    if ($LASTEXITCODE -ne 0) { Die "ATT&CK download failed" }
+} else {
+    $sz = "{0:N1}" -f ((Get-Item $attackJson).Length / 1MB)
+    OK "ATT&CK data already present ($sz MB)"
+}
+
 # ─── 4. Frontend (npm install + vite build) ──────────────────────────
 Section "Frontend"
 
@@ -204,6 +217,15 @@ if (-not $SkipSidecar) {
         $stagedExe = Join-Path $binDir "redforge-sidecar-x86_64-pc-windows-msvc.exe"
         Copy-Item $sidecarExe $stagedExe -Force
         OK "Staged: $stagedExe"
+
+        # ─── 6b. Smoke test the bundled sidecar BEFORE running tauri build ──
+        Section "Smoke testing bundled sidecar"
+        Info "Running 13-test integration suite..."
+        & powershell -ExecutionPolicy Bypass -NoProfile -File (Join-Path $ProjectRoot "scripts\smoke-test.ps1") -ExePath $sidecarExe
+        if ($LASTEXITCODE -ne 0) {
+            Die "Smoke test failed - aborting build before tauri compile."
+        }
+        OK "Smoke test passed - sidecar is shippable"
 
         # Copy supporting one-folder contents into src-tauri/resources/sidecar/
         $resourceDir = Join-Path $ProjectRoot "src-tauri\resources\sidecar"

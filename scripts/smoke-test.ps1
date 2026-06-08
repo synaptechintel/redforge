@@ -148,7 +148,10 @@ Write-Host ""
 Write-Host "=============================================" -ForegroundColor Cyan
 if ($failed -eq 0) {
     Write-Host " ALL $passed TESTS PASSED" -ForegroundColor Green
+    Write-Host "=============================================" -ForegroundColor Cyan
+    exit 0
 } else {
     Write-Host " RESULTS: $passed passed, $failed failed" -ForegroundColor Yellow
+    Write-Host "=============================================" -ForegroundColor Cyan
+    exit 1
 }
-Write-Host "=============================================" -ForegroundColor Cyan
