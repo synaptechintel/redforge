@@ -75,7 +75,7 @@ impl SidecarManager {
                 cmd.env("REDFORGE_SIDECAR_PORT", self.port.to_string());
 
                 if let Some(app_data) = app_handle.path().app_data_dir().ok() {
-                    cmd.env("REDFORGE_DATA_DIR", app_data);
+                    cmd.env("REDFORGE_DATA_DIR", app_data.clone());
                 }
 
                 let child = cmd
@@ -118,7 +118,7 @@ impl SidecarManager {
 
         // Pass proper app data directory so the sidecar knows where to put redforge.db
         if let Some(app_data) = app_handle.path().app_data_dir().ok() {
-            cmd.env("REDFORGE_DATA_DIR", app_data);
+            cmd.env("REDFORGE_DATA_DIR", app_data.clone());
             println!("[RedForge] Passing REDFORGE_DATA_DIR = {:?}", app_data);
         }
 
