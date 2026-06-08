@@ -28,6 +28,18 @@ echo   AUTHORIZED USE ONLY
 echo  ============================================
 echo.
 
+REM --- Detect problematic project path (spaces/parens break pip install impacket) ---
+echo %CD%| findstr /R /C:"[ (]" >nul
+if %ERRORLEVEL% equ 0 (
+    echo [WARN] Project path contains spaces or parentheses:
+    echo        %CD%
+    echo        This will likely break the Python sidecar install ^(impacket^).
+    echo        Move the project to a clean path like C:\dev\redforge and re-run.
+    echo.
+    set /p CONTINUE="Continue anyway? (y/N): "
+    if /i not "!CONTINUE!"=="y" exit /b 1
+)
+
 REM === FAST PATH: Try release build first ===
 set "RELEASE_EXE=src-tauri\target\release\redforge.exe"
 if exist "%RELEASE_EXE%" (

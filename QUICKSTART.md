@@ -113,6 +113,18 @@ That's it. You now have RedForge on your machine.
 
 ---
 
+## ⚠ IMPORTANT: Path requirements
+
+Put RedForge in a path with **NO spaces and NO parentheses**.
+
+**GOOD:**  `C:\dev\redforge`, `C:\Users\you\Documents\redforge`
+**BAD:**   `C:\Users\you\Downloads\redforge-main (2)`, `C:\My Stuff\redforge`
+
+The Python `impacket` library refuses to install in paths with `(2)` or spaces.
+This is the #1 cause of "sidecar dependencies failed" errors.
+
+---
+
 ## STEP 3: Launch RedForge (ONE CLICK)
 
 ### Option A: Double-click (easiest)
@@ -229,6 +241,21 @@ When the app opens, you'll see a dark tactical interface with a sidebar on the l
 2. Click **"Generate Report"**
 3. A Markdown report is generated with your full timeline, chains, and findings
 4. Click **"Download Markdown"** to save it
+
+---
+
+## STEP 5: Build a real shippable .exe / installer
+
+When you're ready to ship RedForge to other people (no dev tools required on their machine):
+
+1. Make sure prerequisites are installed (Step 1)
+2. Double-click **`Build-Release.bat`** in the project root
+3. Wait 10-20 minutes (first build only — Rust + Python bundling)
+4. Get your installer here:
+   - `src-tauri\target\release\bundle\nsis\RedForge_*_x64-setup.exe` (Windows installer)
+   - `src-tauri\target\release\redforge.exe` (portable .exe)
+
+End-users just run the installer — no Node, Python, or Rust needed. They only need Ollama for the AI features (optional).
 
 ---
 

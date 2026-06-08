@@ -54,6 +54,9 @@
     },
     "externalBin": [
       "binaries/redforge-sidecar"
+    ],
+    "resources": [
+      "resources/sidecar/*"
     ]
   }
 }
