@@ -54,18 +54,24 @@ impl SidecarManager {
         }
 
         let resource_dir = app_handle.path().resource_dir().ok();
+        // Tauri's externalBin places the sidecar binary as a SIBLING of the main exe in production.
+        let exe_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf()));
 
-        // Strategy 1: Production bundled sidecar (via externalBin in tauri.conf.json)
-        // Tauri places it in resources/ with platform-specific name, but we also check common locations.
+        // Strategy 1: Production bundled sidecar (via externalBin in tauri.conf.json).
+        // We try every realistic location across platforms.
         let bundled_candidates = vec![
-            resource_dir.as_ref().map(|d| d.join("redforge-sidecar")),
+            // Sibling of main exe - this is where Tauri externalBin actually lands in production
+            exe_dir.as_ref().map(|d| d.join("redforge-sidecar.exe")),
+            exe_dir.as_ref().map(|d| d.join("redforge-sidecar")),
+            // Tauri resources dir
             resource_dir.as_ref().map(|d| d.join("redforge-sidecar.exe")),
-            resource_dir.as_ref().map(|d| d.join("binaries/redforge-sidecar")),
+            resource_dir.as_ref().map(|d| d.join("redforge-sidecar")),
             resource_dir.as_ref().map(|d| d.join("binaries/redforge-sidecar.exe")),
+            resource_dir.as_ref().map(|d| d.join("binaries/redforge-sidecar")),
             resource_dir.as_ref().map(|d| d.join("binaries/redforge-sidecar-x86_64-pc-windows-msvc.exe")),
-            // Tauri externalBin often resolves to these in the app resources
-            app_handle.path().app_data_dir().ok().map(|d| d.join("redforge-sidecar")),
+            // App data dir (some setups)
             app_handle.path().app_data_dir().ok().map(|d| d.join("redforge-sidecar.exe")),
+            app_handle.path().app_data_dir().ok().map(|d| d.join("redforge-sidecar")),
         ];
 
         for candidate in bundled_candidates.into_iter().flatten() {
@@ -118,7 +124,7 @@ impl SidecarManager {
 
         // Pass proper app data directory so the sidecar knows where to put redforge.db
         if let Some(app_data) = app_handle.path().app_data_dir().ok() {
-            cmd.env("REDFORGE_DATA_DIR", app_data);
+            cmd.env("REDFORGE_DATA_DIR", &app_data);
             println!("[RedForge] Passing REDFORGE_DATA_DIR = {:?}", app_data);
         }
 

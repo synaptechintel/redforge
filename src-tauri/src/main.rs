@@ -71,13 +71,13 @@ fn main() {
 
             // Clean shutdown when the last window closes
             let manager_for_exit = sidecar_manager.clone();
-            app.handle().on_window_event(move |window, event| {
-                if window.label() == "main" {
+            if let Some(main_window) = app.get_webview_window("main") {
+                main_window.on_window_event(move |event| {
                     if let tauri::WindowEvent::CloseRequested { .. } = event {
                         manager_for_exit.stop();
                     }
-                }
-            });
+                });
+            }
 
             Ok(())
         })

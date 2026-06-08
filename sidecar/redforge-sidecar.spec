@@ -96,17 +96,22 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
-# One-folder mode: faster startup + smaller delta updates
+# ONE-FILE mode: single .exe that contains everything.
+# Slightly slower first-launch (~1-2s extraction) but TRULY portable -
+# Tauri externalBin can copy it as a single artifact with zero side files.
 exe = EXE(
     pyz,
     a.scripts,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
     [],
-    exclude_binaries=True,
     name="redforge-sidecar",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,             # UPX often triggers AV false-positives - keep off
+    runtime_tmpdir=None,   # Use system temp for extraction
     console=True,          # Sidecar logs go to console; Tauri swallows it
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -114,15 +119,4 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=None,
-)
-
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    strip=False,
-    upx=False,
-    upx_exclude=[],
-    name="redforge-sidecar",
 )

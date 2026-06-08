@@ -18,7 +18,7 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 import asyncio
 import subprocess
@@ -2004,5 +2004,18 @@ async def get_tailored_execution_commands(op_id: str):
 
 if __name__ == "__main__":
     import uvicorn
+    import sys
+
     port = int(os.getenv("REDFORGE_SIDECAR_PORT", "18765"))
-    uvicorn.run("engine:app", host="127.0.0.1", port=port, reload=True)
+
+    # When frozen by PyInstaller, NEVER use reload (causes fork bomb via watchfiles).
+    # When running from source, reload is convenient for development.
+    is_frozen = getattr(sys, "frozen", False)
+    use_reload = (not is_frozen) and os.getenv("REDFORGE_DEV") == "1"
+
+    if is_frozen:
+        # Pass the app object directly when frozen so uvicorn doesn't try to
+        # re-import "engine:app" (which fails inside PyInstaller bundles).
+        uvicorn.run(app, host="127.0.0.1", port=port, reload=False)
+    else:
+        uvicorn.run("engine:app", host="127.0.0.1", port=port, reload=use_reload)
