@@ -12,7 +12,7 @@ on:
       - 'sidecar/**'
       - 'package.json'
       - 'package-lock.json'
-      - 'scripts/build-windows.ps1'
+      - 'scripts/**'
       - '.github/workflows/windows-release.yml'
 
 jobs:
@@ -29,14 +29,11 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-          cache: 'pip'
-          cache-dependency-path: sidecar/requirements.txt
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -46,33 +43,16 @@ jobs:
         with:
           workspaces: src-tauri
 
-      - name: Install frontend dependencies
-        run: npm ci
-
-      - name: Build Python sidecar executable
+      - name: Build Windows EXE and NSIS installer
         shell: pwsh
-        run: |
-          cd sidecar
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt pyinstaller
-          pyinstaller redforge-sidecar.spec --clean --noconfirm
-          if (!(Test-Path "dist/redforge-sidecar/redforge-sidecar.exe")) { throw "sidecar exe missing" }
-          cd ..
-          New-Item -ItemType Directory -Force -Path "src-tauri/binaries" | Out-Null
-          Copy-Item "sidecar/dist/redforge-sidecar/redforge-sidecar.exe" "src-tauri/binaries/redforge-sidecar-x86_64-pc-windows-msvc.exe" -Force
-
-      - name: Build frontend
-        run: npm run build
-
-      - name: Build Tauri Windows app
-        run: npm run tauri build -- --bundles nsis
+        run: ./scripts/build-windows.ps1
 
       - name: Collect build outputs
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path artifacts | Out-Null
-          Get-ChildItem "src-tauri/target/release" -Filter "*.exe" -ErrorAction SilentlyContinue | Copy-Item -Destination artifacts -Force
-          Get-ChildItem "src-tauri/target/release/bundle/nsis" -Filter "*.exe" -ErrorAction SilentlyContinue | Copy-Item -Destination artifacts -Force
+          Copy-Item "src-tauri/target/release/redforge.exe" "artifacts/RedForge-portable.exe" -Force
+          Get-ChildItem "src-tauri/target/release/bundle/nsis" -Filter "*.exe" -ErrorAction Stop | Copy-Item -Destination artifacts -Force
           Get-ChildItem artifacts | Format-Table Name,Length
           if (-not (Get-ChildItem artifacts -Filter "*.exe" -ErrorAction SilentlyContinue)) { throw "No EXE artifacts produced" }
 
