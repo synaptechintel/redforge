@@ -5,7 +5,7 @@ mod sidecar;
 
 use std::sync::Arc;
 
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 use crate::sidecar::{SidecarManager, SidecarStatus};
 
@@ -59,23 +59,15 @@ fn main() {
             let app_handle = app.handle().clone();
             let manager = sidecar_manager.clone();
 
-            // Attempt to start the sidecar early (non-blocking)
+            // Attempt to start the sidecar early (non-blocking).
+            // SidecarManager implements Drop, so the child process is cleaned up
+            // when the app shuts down.
             tauri::async_runtime::spawn(async move {
-                // Small delay so the window can appear first
+                // Small delay so the window can appear first.
                 tokio::time::sleep(std::time::Duration::from_millis(400)).await;
 
                 if let Err(e) = manager.start(&app_handle) {
                     eprintln!("[RedForge] Sidecar auto-start failed: {}", e);
-                }
-            });
-
-            // Clean shutdown when the last window closes
-            let manager_for_exit = sidecar_manager.clone();
-            app.handle().on_window_event(move |window, event| {
-                if window.label() == "main" {
-                    if let tauri::WindowEvent::CloseRequested { .. } = event {
-                        manager_for_exit.stop();
-                    }
                 }
             });
 
