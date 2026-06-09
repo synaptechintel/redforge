@@ -103,7 +103,17 @@ name = (m.get("model") or m.get("name")) if isinstance(m, dict) else (getattr(m,
 
 **Fix:** Added `exe_dir` (parent of `current_exe()`) as the FIRST candidate. See `src-tauri/src/sidecar.rs`.
 
-### 7. NSIS installer schema is strict
+### 7. productize.ps1 had stale PyInstaller path
+
+**Symptom:** `Build-Release.bat` fails with `[!!] Expected sidecar binary not found at ...\sidecar\dist\redforge-sidecar\redforge-sidecar.exe`.
+
+**Cause:** When we switched the spec from one-folder COLLECT mode to one-file EXE mode (see landmine #1), we forgot to update `scripts/productize.ps1`. It was still looking inside the subfolder `dist\redforge-sidecar\` instead of for the standalone file `dist\redforge-sidecar.exe`. Same for the "copy support files to resources/sidecar/" step — that's obsolete since the one-file exe is self-contained.
+
+**Fix:** Already fixed. The script now checks `dist\redforge-sidecar.exe` directly, and the resources/sidecar/ stage is removed.
+
+**Prevention:** When you change the PyInstaller spec mode, grep for `dist\redforge-sidecar` across the whole repo and update every reference.
+
+### 8. NSIS installer schema is strict
 
 **Symptom:** `npm run tauri build` fails with `"tauri.conf.json" error on bundle > windows > nsis: ... is not valid under any of the schemas listed`.
 

@@ -194,11 +194,16 @@ if (-not $SkipSidecar) {
         & python -m PyInstaller redforge-sidecar.spec --clean --noconfirm
         if ($LASTEXITCODE -ne 0) { Die "PyInstaller failed" }
 
-        $sidecarExe = Join-Path (Get-Location) "dist\redforge-sidecar\redforge-sidecar.exe"
+        # PyInstaller one-file mode produces a single self-contained exe
+        # directly at dist\redforge-sidecar.exe (no subfolder, no _internal/).
+        # See sidecar/redforge-sidecar.spec - we use EXE() with binaries+datas
+        # baked in, not COLLECT().
+        $sidecarExe = Join-Path (Get-Location) "dist\redforge-sidecar.exe"
         if (-not (Test-Path $sidecarExe)) {
-            Die "Expected sidecar binary not found at $sidecarExe"
+            Die "Expected sidecar binary not found at $sidecarExe`n`n  Likely cause: PyInstaller spec is in one-folder mode but our pipeline expects one-file. Check sidecar/redforge-sidecar.spec - the bottom should be a single EXE() block with a.binaries / a.zipfiles / a.datas inside, NOT a COLLECT() block."
         }
-        OK "Sidecar bundled: $((Get-Item $sidecarExe).Length / 1MB) MB"
+        $sizeMB = "{0:N1}" -f ((Get-Item $sidecarExe).Length / 1MB)
+        OK "Sidecar bundled (one-file): $sizeMB MB"
 
         # ─── 7. Stage for Tauri ────────────────────────────────────
         Section "Staging sidecar for Tauri"
@@ -206,14 +211,8 @@ if (-not $SkipSidecar) {
         $binDir = Join-Path $ProjectRoot "src-tauri\binaries"
         New-Item -ItemType Directory -Force -Path $binDir | Out-Null
 
-        # The whole one-folder bundle (deps + exe) needs to be available at runtime.
-        # We embed the launcher exe as the externalBin, and we ship the
-        # supporting files alongside it via a tauri resource folder.
-        #
-        # For simplicity we copy the exe directly and rely on PyInstaller
-        # one-folder mode placing all DLLs next to it. We then zip the rest
-        # into resources/sidecar/ which Tauri will deploy alongside the binary.
-
+        # The one-file exe is fully self-contained (Python runtime + all deps
+        # + ATT&CK data). Tauri externalBin just copies this one file.
         $stagedExe = Join-Path $binDir "redforge-sidecar-x86_64-pc-windows-msvc.exe"
         Copy-Item $sidecarExe $stagedExe -Force
         OK "Staged: $stagedExe"
@@ -226,15 +225,6 @@ if (-not $SkipSidecar) {
             Die "Smoke test failed - aborting build before tauri compile."
         }
         OK "Smoke test passed - sidecar is shippable"
-
-        # Copy supporting one-folder contents into src-tauri/resources/sidecar/
-        $resourceDir = Join-Path $ProjectRoot "src-tauri\resources\sidecar"
-        if (Test-Path $resourceDir) { Remove-Item -Recurse -Force $resourceDir }
-        New-Item -ItemType Directory -Force -Path $resourceDir | Out-Null
-
-        $sidecarFolder = Join-Path (Get-Location) "dist\redforge-sidecar"
-        Copy-Item "$sidecarFolder\*" $resourceDir -Recurse -Force
-        OK "Sidecar support files staged at src-tauri\resources\sidecar"
     } finally {
         Pop-Location
     }
