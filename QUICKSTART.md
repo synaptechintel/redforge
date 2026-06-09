@@ -304,6 +304,19 @@ winget install Microsoft.VisualStudio.2022.BuildTools
 ```
 Then in the installer, check "Desktop development with C++" and install.
 
+### "EACCES: permission denied ::1:1420" (or :5173) at dev startup
+The dev server's port is in a Windows **reserved port range** (Hyper-V / WSL / Docker grab chunks of ports). It's not in use — Windows just won't let anything bind it.
+
+**Check which ranges are reserved:**
+```
+netsh interface ipv4 show excludedportrange protocol=tcp
+```
+If the dev port falls inside a listed range, either:
+- **Free the ranges (temporary, needs admin):** `net stop winnat` then `net start winnat`
+- **Change the port (permanent):** edit `server.port` in `vite.config.ts` AND `build.devUrl` in `src-tauri/tauri.conf.json` to a port not in any reserved range (3000, 4200, and 1600 are usually safe).
+
+**Easiest fix of all:** don't run dev mode — just download and run the prebuilt installer from https://github.com/synaptechintel/redforge/releases/latest. Dev mode is only for people modifying the code.
+
 ### First launch is really slow
 Normal! The first `tauri dev` compiles the entire Rust backend (~3-5 minutes). Every launch after that is fast (~5 seconds).
 

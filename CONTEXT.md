@@ -122,7 +122,19 @@ name = (m.get("model") or m.get("name")) if isinstance(m, dict) else (getattr(m,
 
 **Prevention:** When you change the PyInstaller spec mode, grep for `dist\redforge-sidecar` across the whole repo and update every reference.
 
-### 8. NSIS installer schema is strict
+### 8. Vite dev port EACCES on Windows (reserved port range)
+
+**Symptom:** `RedForge.bat` / `npm run dev` fails with `Error: listen EACCES: permission denied ::1:1420` then "The beforeDevCommand terminated with a non-zero status code."
+
+**Cause:** Tauri's convention dev port is 1420. On Windows with Hyper-V / WSL2 / Docker, the OS reserves chunks of the dynamic port range (`netsh interface ipv4 show excludedportrange protocol=tcp`). Port 1420 frequently lands inside a reserved range (e.g. 1338-1437), so Vite gets EACCES — not because something is using it, but because Windows won't let anything bind it. The `::1` in the error = Vite trying IPv6 loopback.
+
+**Fix:** Already fixed. We moved the dev port to **5173** (Vite's own default, rarely reserved) and set `host: "127.0.0.1"` in `vite.config.ts` to force IPv4. Also updated `devUrl` in `tauri.conf.json` to match. The CORS regex already allows any localhost port so the sidecar is fine.
+
+**If 5173 is ALSO reserved on a given machine:** check `netsh interface ipv4 show excludedportrange protocol=tcp`, pick a free port (3000, 4200, 1600 all worked in testing), change it in BOTH `vite.config.ts` (`server.port`) AND `tauri.conf.json` (`build.devUrl`). Or free the range temporarily with admin: `net stop winnat; net start winnat`.
+
+**Note:** This ONLY affects dev mode. The built/installed app uses the dynamic sidecar port (18765+) and serves the frontend from bundled files - no Vite, no 5173. End users running the installer never hit this.
+
+### 9. NSIS installer schema is strict
 
 **Symptom:** `npm run tauri build` fails with `"tauri.conf.json" error on bundle > windows > nsis: ... is not valid under any of the schemas listed`.
 
