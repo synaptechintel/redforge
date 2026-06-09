@@ -1,0 +1,63 @@
+name: Smoke Test
+
+# Runs the integration smoke suite on every push + PR.
+# Builds the sidecar via PyInstaller, then hits 13 critical endpoints
+# (health, ATT&CK browse, technique search, technique detail, create op,
+#  log timeline event, suggest techniques, recon scan, parse, generate
+#  followup, chain builder, list+timeline, DB persistence).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\pip\Cache
+          key: pip-${{ runner.os }}-${{ hashFiles('sidecar/requirements.txt') }}
+          restore-keys: |
+            pip-${{ runner.os }}-
+
+      - name: Install sidecar dependencies
+        working-directory: sidecar
+        run: |
+          python -m venv .venv
+          .venv\Scripts\python.exe -m pip install --upgrade pip
+          .venv\Scripts\python.exe -m pip install -r requirements.txt
+          .venv\Scripts\python.exe -m pip install pyinstaller
+
+      - name: Download MITRE ATT&CK data
+        run: python scripts\download-attack-data.py
+
+      - name: Build sidecar exe
+        working-directory: sidecar
+        run: .venv\Scripts\python.exe -m PyInstaller redforge-sidecar.spec --clean --noconfirm
+
+      - name: Smoke test
+        shell: pwsh
+        run: |
+          .\scripts\smoke-test.ps1 -ExePath "$pwd\sidecar\dist\redforge-sidecar.exe"
+          if ($LASTEXITCODE -ne 0) { throw "Smoke tests failed" }
+
+      - name: Upload sidecar exe on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: redforge-sidecar-debug
+          path: sidecar/dist/redforge-sidecar.exe
+          retention-days: 3

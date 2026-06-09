@@ -2068,6 +2068,33 @@ function DashboardView({ sidecarPort }: { sidecarPort: number }) {
   );
 }
 
+// Animated loading indicator with helpful cold-start explanation
+function AssistantThinking() {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    const i = setInterval(() => setElapsed((e) => e + 1), 1000);
+    return () => clearInterval(i);
+  }, []);
+  const dots = ".".repeat((elapsed % 3) + 1);
+  return (
+    <div className="space-y-1">
+      <div className="text-emerald-500/70">
+        <span className="text-emerald-500/70 mr-2">redforge&gt;</span>thinking{dots}
+        <span className="text-emerald-600/50 ml-2">({elapsed}s)</span>
+      </div>
+      {elapsed > 5 && elapsed <= 15 && (
+        <div className="text-xs text-emerald-700/60 ml-12">First reply this session loads the model from disk. Typically 30-60s.</div>
+      )}
+      {elapsed > 15 && elapsed <= 45 && (
+        <div className="text-xs text-emerald-700/60 ml-12">Still loading model. This only happens once per session.</div>
+      )}
+      {elapsed > 45 && (
+        <div className="text-xs text-amber-500/80 ml-12">Taking longer than expected. Check Ollama is running, or pre-warm with `ollama run &lt;model&gt;`.</div>
+      )}
+    </div>
+  );
+}
+
 function AssistantView({ sidecarPort }: { sidecarPort: number }) {
   const { activeOperation, pendingKillChainPlan, setPendingKillChainPlan } = useRedForgeStore();
   const [messages, setMessages] = useState<Array<{ role: string; content: string }>>([
@@ -2155,7 +2182,7 @@ function AssistantView({ sidecarPort }: { sidecarPort: number }) {
             <span className="whitespace-pre-wrap">{m.content}</span>
           </div>
         ))}
-        {loading && <div className="text-emerald-500/70">thinking...</div>}
+        {loading && <AssistantThinking />}
       </div>
 
       <div className="flex gap-2">
@@ -2592,10 +2619,168 @@ function ChainBuilder({ sidecarPort }: { sidecarPort: number }) {
   );
 }
 
+// ──────────────────────────────────────────────────────────────────────
+// First-run wizard - shown once on first launch
+// ──────────────────────────────────────────────────────────────────────
+const ONBOARDING_KEY = "redforge.onboarded.v1";
+
+function FirstRunWizard({ sidecarPort, onDone }: { sidecarPort: number; onDone: () => void }) {
+  const [authorized, setAuthorized] = useState(false);
+  const [opsec, setOpsec] = useState(false);
+  const [ollama, setOllama] = useState<{
+    loading: boolean;
+    installed: boolean;
+    running: boolean;
+    selected_model: string | null;
+    available_models: string[];
+    tip: string | null;
+  }>({ loading: true, installed: false, running: false, selected_model: null, available_models: [], tip: null });
+
+  useEffect(() => {
+    let cancelled = false;
+    const probe = async () => {
+      try {
+        const r = await fetch(`http://127.0.0.1:${sidecarPort}/api/ollama/status`);
+        const j = await r.json();
+        if (!cancelled) {
+          setOllama({
+            loading: false,
+            installed: !!j.ollama_installed,
+            running: !!j.ollama_running,
+            selected_model: j.selected_model ?? null,
+            available_models: j.available_models || [],
+            tip: j.tip || null,
+          });
+        }
+      } catch {
+        if (!cancelled) setOllama((s) => ({ ...s, loading: false }));
+      }
+    };
+    probe();
+    const i = setInterval(probe, 5000);
+    return () => { cancelled = true; clearInterval(i); };
+  }, [sidecarPort]);
+
+  const canContinue = authorized && opsec;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-zinc-950/95 backdrop-blur flex items-center justify-center p-6 overflow-y-auto">
+      <div className="max-w-2xl w-full bg-zinc-900 border border-border rounded-lg shadow-xl">
+        <div className="border-b border-border p-5">
+          <div className="text-2xl font-bold text-red-400">Welcome to RedForge</div>
+          <div className="text-sm text-muted-foreground mt-1">A local-first platform for authorized red team operations.</div>
+        </div>
+
+        <div className="p-5 space-y-5 max-h-[70vh] overflow-y-auto">
+          {/* What it is */}
+          <div className="space-y-1">
+            <div className="text-sm font-semibold text-foreground">What RedForge does</div>
+            <div className="text-sm text-muted-foreground">
+              Tracks engagements, runs recon scans, executes commands locally or via WinRM/PSExec,
+              auto-suggests MITRE ATT&CK techniques, and gives you an LLM-powered Red Team Leader
+              that sees your actual discovered assets. <strong>Everything runs on your machine. No cloud. No telemetry.</strong>
+            </div>
+          </div>
+
+          {/* Critical warning */}
+          <div className="rounded border border-red-700 bg-red-950/40 p-4 space-y-3">
+            <div className="text-red-300 font-semibold uppercase tracking-wide text-xs">Critical: Authorization</div>
+            <div className="text-sm">
+              RedForge bundles real offensive tooling (impacket, WinRM, recon, credential collection).
+              Using it against systems you don't own or have <strong>explicit written authorization</strong> to test
+              is a felony in most jurisdictions (CFAA in the US, Computer Misuse Act in the UK, equivalents elsewhere).
+            </div>
+
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input type="checkbox" checked={authorized} onChange={(e) => setAuthorized(e.target.checked)} className="mt-1" />
+              <span className="text-sm">
+                I have explicit written authorization to test every system I will use RedForge against,
+                and I accept full legal responsibility for my actions.
+              </span>
+            </label>
+
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input type="checkbox" checked={opsec} onChange={(e) => setOpsec(e.target.checked)} className="mt-1" />
+              <span className="text-sm">
+                I understand RedForge stores credentials and engagement data locally in plaintext SQLite at{" "}
+                <code className="text-xs bg-zinc-800 px-1 rounded">%APPDATA%\com.redforge.desktop\redforge.db</code>.
+                I will protect this file appropriately and delete it after the engagement.
+              </span>
+            </label>
+          </div>
+
+          {/* Ollama detection */}
+          <div className="rounded border border-border bg-zinc-950 p-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-semibold">AI Red Team Leader (optional)</div>
+              <div className="text-xs">
+                {ollama.loading ? (
+                  <span className="text-muted-foreground">Checking...</span>
+                ) : ollama.running && ollama.selected_model ? (
+                  <span className="text-green-400">Ready: {ollama.selected_model}</span>
+                ) : ollama.running ? (
+                  <span className="text-amber-400">Ollama running, no models</span>
+                ) : ollama.installed ? (
+                  <span className="text-amber-400">Ollama installed, not running</span>
+                ) : (
+                  <span className="text-muted-foreground">Ollama not installed</span>
+                )}
+              </div>
+            </div>
+
+            {!ollama.running ? (
+              <div className="text-xs text-muted-foreground">
+                The Red Team Leader chat needs <a href="https://ollama.com/" target="_blank" rel="noopener" className="text-red-400 underline">Ollama</a>.
+                Without it, you still get full Operations / Recon / Execution / ATT&CK / Chain Builder /
+                Reports — the chat tab uses rule-based fallback replies.
+                After installing Ollama, run: <code className="text-xs bg-zinc-800 px-1 rounded">ollama pull llama3.1:8b</code>
+              </div>
+            ) : !ollama.selected_model ? (
+              <div className="text-xs text-muted-foreground">
+                Ollama is running but has no models. Run: <code className="bg-zinc-800 px-1 rounded">ollama pull llama3.1:8b</code> (or any other model — RedForge auto-detects).
+              </div>
+            ) : (
+              <div className="text-xs text-muted-foreground">
+                {ollama.available_models.length} models available. First reply may take ~30-60 seconds while the model loads from disk (one-time per session).
+              </div>
+            )}
+
+            {ollama.tip && (
+              <div className="text-xs text-amber-300">Tip: {ollama.tip}</div>
+            )}
+          </div>
+
+          {/* Where data lives */}
+          <div className="text-xs text-muted-foreground">
+            Your data lives at: <code className="bg-zinc-800 px-1 rounded">%APPDATA%\com.redforge.desktop\</code>
+            <br />
+            Logs at: <code className="bg-zinc-800 px-1 rounded">%APPDATA%\com.redforge.desktop\logs\sidecar.log</code>
+          </div>
+        </div>
+
+        <div className="border-t border-border p-4 flex items-center justify-between">
+          <div className="text-xs text-muted-foreground">
+            By continuing, you accept the responsibilities above.
+          </div>
+          <button
+            disabled={!canContinue}
+            onClick={() => { localStorage.setItem(ONBOARDING_KEY, "1"); onDone(); }}
+            className="rounded bg-red-600 hover:bg-red-500 disabled:opacity-30 disabled:cursor-not-allowed text-white px-5 py-2 text-sm font-semibold"
+          >
+            {canContinue ? "Get started" : "Check both boxes to continue"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 export default function App() {
   const [activeView, setActiveView] = useState<keyof typeof views>("operations");
   const [sidecar, setSidecar] = useState({ connected: false, port: 18765 });
   const [isRestarting, setIsRestarting] = useState(false);
+  const [onboarded, setOnboarded] = useState<boolean>(() => localStorage.getItem(ONBOARDING_KEY) === "1");
   const { activeOperation } = useRedForgeStore();
 
   useEffect(() => {
@@ -2623,12 +2808,17 @@ export default function App() {
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
+      {!onboarded && sidecar.connected && (
+        <FirstRunWizard sidecarPort={sidecar.port} onDone={() => setOnboarded(true)} />
+      )}
       <div className="tactical-header h-12 flex items-center px-4 text-sm">
         <div className="font-bold text-red-400 mr-4">REDFORGE</div>
         <div className="flex-1" />
         <div className="text-xs text-red-500 font-medium mr-4">AUTHORIZED USE ONLY</div>
         <div>Sidecar: {sidecar.connected ? "OK" : "down"}</div>
-        <button onClick={handleRestartSidecar} className="ml-2 px-2 py-0.5 text-xs border rounded">Restart</button>
+        <button onClick={handleRestartSidecar} disabled={isRestarting} className="ml-2 px-2 py-0.5 text-xs border rounded disabled:opacity-50">
+          {isRestarting ? "..." : "Restart"}
+        </button>
       </div>
       <div className="flex flex-1 overflow-hidden">
         <div className="w-48 border-r border-border p-2 overflow-auto text-sm">
