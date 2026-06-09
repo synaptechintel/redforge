@@ -4,7 +4,7 @@
 > Read it before starting work; update it as you finish meaningful tasks.
 > Keeps the cost of context-switching low and the cost of repeating past mistakes near zero.
 
-**Last updated:** 2026-06-09 (v0.6.0 in development - all Tier 2 done)
+**Last updated:** 2026-06-09 (v0.6.0 PUBLISHED — Tier 1 launch blockers remaining)
 
 ---
 
@@ -21,9 +21,9 @@ Build one-click: `Build-Release.bat` → installer + portable in `src-tauri\targ
 
 ## Current state
 
-**Latest published release:** [v0.5.3](https://github.com/synaptechintel/redforge/releases/tag/v0.5.3) — first-run wizard, no-UAC install, smarter loading UX, CI/CD workflows, README rewrite.
+**Latest published release:** [v0.6.0](https://github.com/synaptechintel/redforge/releases/tag/v0.6.0) — auto-updater, single-instance lock, dynamic sidecar port, full Settings view rewrite. All Tier 2 polish complete.
 
-**In development:** v0.6.0 — see "Active TODOs / Roadmap" below for the Tier 1 launch blockers (code signing, AV whitelisting, auto-updater).
+**Next:** Tier 1 launch blockers — code signing certificate purchase, Microsoft Defender whitelisting submission. Both require external steps (money + Microsoft response time).
 
 **Working locally:** `C:\Users\waspf\rftest\redforge` (main work dir). Also a fresh clone at `C:\Users\waspf\dev\redforge` (less used). User's deployed copy: `C:\Users\waspf\Downloads\RedForge_0.5.0_x64-portable\` (folder name says 0.5.0, files inside get hot-swapped during testing).
 
