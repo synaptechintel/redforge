@@ -81,7 +81,8 @@ impl SidecarManager {
                 cmd.env("REDFORGE_SIDECAR_PORT", self.port.to_string());
 
                 if let Some(app_data) = app_handle.path().app_data_dir().ok() {
-                    cmd.env("REDFORGE_DATA_DIR", app_data);
+                    cmd.env("REDFORGE_DATA_DIR", &app_data);
+                    println!("[RedForge] (bundled) REDFORGE_DATA_DIR = {:?}", app_data);
                 }
 
                 let child = cmd
