@@ -83,9 +83,19 @@ app = FastAPI(
     redoc_url=None,
 )
 
+# CORS: Allow any local origin (Tauri's WebView2 uses different schemes per OS:
+# Windows: https://tauri.localhost, macOS/Linux: tauri://localhost,
+# Dev mode: http://localhost:1420, etc.)
+# Wildcards like "http://localhost:*" are NOT supported in allow_origins;
+# we have to use allow_origin_regex.
+# Safe because the sidecar only binds to 127.0.0.1.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:*", "http://127.0.0.1:*", "tauri://localhost"],
+    allow_origin_regex=(
+        r"^(https?://(localhost|127\.0\.0\.1)(:\d+)?"
+        r"|tauri://localhost"
+        r"|https://tauri\.localhost)$"
+    ),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

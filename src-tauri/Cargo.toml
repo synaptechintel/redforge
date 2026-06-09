@@ -1,6 +1,6 @@
 [package]
 name = "redforge"
-version = "0.5.0"
+version = "0.5.1"
 description = "RedForge - Local Red Team Operations Platform"
 authors = ["RedForge Contributors"]
 license = "Proprietary"
