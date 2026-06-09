@@ -1786,7 +1786,105 @@ function AiView() {
   );
 }
 
-function SettingsView() {
+function SettingsView({ sidecarPort }: { sidecarPort: number }) {
+  const [paths, setPaths] = useState<{ data_dir: string; log_file: string; db_file: string } | null>(null);
+  const [ollama, setOllama] = useState<any>(null);
+  const [health, setHealth] = useState<any>(null);
+  const [overrideModel, setOverrideModel] = useState("");
+  const [updateState, setUpdateState] = useState<{
+    checking: boolean;
+    available: boolean;
+    version?: string;
+    notes?: string;
+    error?: string;
+    downloading?: boolean;
+    progress?: number;
+  }>({ checking: false, available: false });
+
+  async function checkForUpdates() {
+    setUpdateState({ checking: true, available: false });
+    try {
+      const { check } = await import("@tauri-apps/plugin-updater");
+      const update = await check();
+      if (update) {
+        setUpdateState({
+          checking: false,
+          available: true,
+          version: update.version,
+          notes: update.body || "",
+        });
+      } else {
+        setUpdateState({ checking: false, available: false });
+        toast.success("You're on the latest version.");
+      }
+    } catch (e: any) {
+      setUpdateState({ checking: false, available: false, error: e?.message || String(e) });
+      toast.error(`Update check failed: ${e?.message || e}`);
+    }
+  }
+
+  async function installUpdate() {
+    setUpdateState((s) => ({ ...s, downloading: true, progress: 0 }));
+    try {
+      const { check } = await import("@tauri-apps/plugin-updater");
+      const { relaunch } = await import("@tauri-apps/plugin-process").catch(() => ({ relaunch: async () => {} }));
+      const update = await check();
+      if (!update) {
+        toast.error("Update no longer available.");
+        setUpdateState({ checking: false, available: false });
+        return;
+      }
+      let downloaded = 0;
+      let total = 0;
+      await update.downloadAndInstall((evt: any) => {
+        if (evt.event === "Started") total = evt.data?.contentLength || 0;
+        if (evt.event === "Progress") {
+          downloaded += evt.data?.chunkLength || 0;
+          if (total) setUpdateState((s) => ({ ...s, progress: Math.round((downloaded / total) * 100) }));
+        }
+      });
+      toast.success("Update installed. Relaunching...");
+      try { await relaunch(); } catch {}
+    } catch (e: any) {
+      toast.error(`Install failed: ${e?.message || e}`);
+      setUpdateState((s) => ({ ...s, downloading: false }));
+    }
+  }
+
+  useEffect(() => {
+    (async () => {
+      try { setPaths(await invoke("get_app_paths")); } catch {}
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!sidecarPort) return;
+    const refresh = async () => {
+      try {
+        const [o, h] = await Promise.all([
+          fetch(`http://127.0.0.1:${sidecarPort}/api/ollama/status`).then(r => r.json()),
+          fetch(`http://127.0.0.1:${sidecarPort}/health`).then(r => r.json()),
+        ]);
+        setOllama(o);
+        setHealth(h);
+      } catch {}
+    };
+    refresh();
+    const i = setInterval(refresh, 8000);
+    return () => clearInterval(i);
+  }, [sidecarPort]);
+
+  async function openPath(p?: string) {
+    if (!p) return;
+    try { await invoke("open_path", { path: p }); }
+    catch (e: any) { toast.error(`Could not open: ${e?.message || e}`); }
+  }
+
+  async function showWizardAgain() {
+    localStorage.removeItem(ONBOARDING_KEY);
+    toast.success("First-run wizard will show on next launch. Close and reopen RedForge to see it.");
+  }
+
   const opsecItems = [
     "Using burner infrastructure / VPS",
     "C2 domain registered via privacy service",
@@ -1798,11 +1896,103 @@ function SettingsView() {
   ];
 
   return (
-    <div className="p-6 max-w-2xl">
-      <h2 className="text-xl font-semibold mb-4">Settings &amp; OPSEC</h2>
+    <div className="p-6 max-w-3xl mx-auto space-y-6">
+      <h2 className="text-xl font-semibold">Settings</h2>
 
-      <div className="mb-8">
-        <div className="text-sm font-medium mb-2">OPSEC Checklist (per engagement)</div>
+      {/* Sidecar */}
+      <section className="rounded-lg border border-border bg-zinc-950 p-4">
+        <div className="text-sm font-semibold mb-3">Sidecar</div>
+        <dl className="grid grid-cols-[10rem_1fr] gap-y-1 text-xs">
+          <dt className="text-muted-foreground">Status</dt>
+          <dd>{health ? <span className="text-green-400">{health.status}</span> : <span className="text-amber-400">connecting…</span>}</dd>
+          <dt className="text-muted-foreground">Port</dt>
+          <dd className="font-mono">{sidecarPort}</dd>
+          <dt className="text-muted-foreground">Version</dt>
+          <dd className="font-mono">{health?.version || "—"}</dd>
+          <dt className="text-muted-foreground">ATT&CK loaded</dt>
+          <dd>{health?.attack_data_loaded ? `${health.attack_data_stats?.total_techniques} techniques` : "no"}</dd>
+          <dt className="text-muted-foreground">Database</dt>
+          <dd>{health?.db_ready ? "ready" : "not ready"}</dd>
+        </dl>
+      </section>
+
+      {/* Ollama */}
+      <section className="rounded-lg border border-border bg-zinc-950 p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="text-sm font-semibold">Ollama (AI Red Team Leader)</div>
+          <div className="text-xs">
+            {!ollama ? <span className="text-muted-foreground">checking…</span>
+              : ollama.running && ollama.selected_model ? <span className="text-green-400">ready: {ollama.selected_model}</span>
+              : ollama.running ? <span className="text-amber-400">running, no models</span>
+              : ollama.installed ? <span className="text-amber-400">installed, not running</span>
+              : <span className="text-muted-foreground">not installed</span>}
+          </div>
+        </div>
+
+        {ollama?.tip && <div className="text-xs text-amber-300 mb-2">Tip: {ollama.tip}</div>}
+
+        {ollama?.available_models?.length > 0 && (
+          <div className="text-xs mb-3">
+            <div className="text-muted-foreground mb-1">Installed models ({ollama.available_models.length}):</div>
+            <div className="flex flex-wrap gap-1">
+              {ollama.available_models.map((m: string) => (
+                <span key={m} className={`px-2 py-0.5 rounded font-mono text-xs ${m === ollama.selected_model ? "bg-red-700 text-white" : "bg-zinc-800 text-muted-foreground"}`}>{m}</span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="text-xs text-muted-foreground space-y-1">
+          <div>RedForge auto-detects a sensible model from a preferred list. To force a specific one:</div>
+          <ol className="list-decimal list-inside ml-2 space-y-0.5">
+            <li>Close RedForge.</li>
+            <li>Set env var: <code className="bg-zinc-900 px-1 rounded">$env:REDFORGE_OLLAMA_MODEL = "{overrideModel || "your-model-name"}"</code></li>
+            <li>Relaunch RedForge from that same terminal.</li>
+          </ol>
+          <input
+            value={overrideModel}
+            onChange={(e) => setOverrideModel(e.target.value)}
+            placeholder="model name to use in command above (e.g. gemma:7b)"
+            className="mt-2 w-full rounded border border-border bg-zinc-900 px-2 py-1 font-mono text-xs"
+          />
+        </div>
+      </section>
+
+      {/* Data + logs */}
+      <section className="rounded-lg border border-border bg-zinc-950 p-4">
+        <div className="text-sm font-semibold mb-3">Data &amp; Logs</div>
+        {paths ? (
+          <div className="space-y-2 text-xs">
+            <div className="flex items-center gap-2">
+              <div className="flex-1">
+                <div className="text-muted-foreground">Data folder</div>
+                <code className="font-mono">{paths.data_dir}</code>
+              </div>
+              <button onClick={() => openPath(paths.data_dir)} className="rounded border border-border bg-zinc-900 hover:bg-zinc-800 px-2 py-1">Open</button>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="flex-1">
+                <div className="text-muted-foreground">Database (SQLite)</div>
+                <code className="font-mono">{paths.db_file}</code>
+              </div>
+              <button onClick={() => openPath(paths.data_dir)} className="rounded border border-border bg-zinc-900 hover:bg-zinc-800 px-2 py-1">Show in folder</button>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="flex-1">
+                <div className="text-muted-foreground">Sidecar log</div>
+                <code className="font-mono">{paths.log_file}</code>
+              </div>
+              <button onClick={() => openPath(paths.log_file)} className="rounded border border-border bg-zinc-900 hover:bg-zinc-800 px-2 py-1">Open</button>
+            </div>
+          </div>
+        ) : (
+          <div className="text-xs text-muted-foreground">Loading…</div>
+        )}
+      </section>
+
+      {/* OPSEC */}
+      <section className="rounded-lg border border-border bg-zinc-950 p-4">
+        <div className="text-sm font-semibold mb-2">OPSEC checklist (per engagement)</div>
         <div className="space-y-1">
           {opsecItems.map((item, i) => (
             <label key={i} className="flex items-center gap-2 text-sm">
@@ -1810,11 +2000,66 @@ function SettingsView() {
             </label>
           ))}
         </div>
-      </div>
+        <div className="text-xs text-muted-foreground mt-2">Local-only - not persisted. A reminder, not a record.</div>
+      </section>
 
-      <div className="text-xs text-muted-foreground">
-        All data stays local. No telemetry. Use responsibly.
-      </div>
+      {/* Updates */}
+      <section className="rounded-lg border border-border bg-zinc-950 p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-semibold">Updates</div>
+          <button
+            onClick={checkForUpdates}
+            disabled={updateState.checking || updateState.downloading}
+            className="rounded border border-border bg-zinc-900 hover:bg-zinc-800 px-3 py-1 text-xs disabled:opacity-50"
+          >
+            {updateState.checking ? "Checking…" : "Check for updates"}
+          </button>
+        </div>
+        {updateState.available && (
+          <div className="rounded border border-amber-700/40 bg-amber-950/20 p-3 space-y-2">
+            <div className="text-sm font-semibold text-amber-300">v{updateState.version} available</div>
+            {updateState.notes && (
+              <div className="text-xs text-muted-foreground whitespace-pre-wrap max-h-32 overflow-y-auto">{updateState.notes}</div>
+            )}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={installUpdate}
+                disabled={updateState.downloading}
+                className="rounded bg-red-600 hover:bg-red-500 text-white px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
+              >
+                {updateState.downloading ? `Downloading… ${updateState.progress || 0}%` : "Download and install"}
+              </button>
+              <a
+                href={`https://github.com/synaptechintel/redforge/releases/tag/v${updateState.version}`}
+                target="_blank" rel="noopener"
+                className="text-xs text-red-400 underline"
+              >View on GitHub</a>
+            </div>
+          </div>
+        )}
+        {updateState.error && (
+          <div className="text-xs text-red-400">Error: {updateState.error}</div>
+        )}
+        <div className="text-xs text-muted-foreground">
+          Updates are signed and verified. Source: GitHub Releases. Manual check only - no background polling.
+        </div>
+      </section>
+
+      {/* Reset / about */}
+      <section className="rounded-lg border border-border bg-zinc-950 p-4 space-y-3">
+        <div className="text-sm font-semibold">Misc</div>
+        <button onClick={showWizardAgain} className="rounded border border-border bg-zinc-900 hover:bg-zinc-800 px-3 py-1.5 text-xs">
+          Show first-run wizard again (next launch)
+        </button>
+        <div className="text-xs text-muted-foreground">
+          To reset everything, close RedForge and delete the data folder above. All operations, timeline,
+          assets, and credentials will be lost.
+        </div>
+        <div className="text-xs text-muted-foreground border-t border-border pt-2">
+          RedForge v{health?.version || "?.?.?"} · 100% local · no telemetry · open at{" "}
+          <a href="https://github.com/synaptechintel/redforge" target="_blank" rel="noopener" className="text-red-400 underline">github.com/synaptechintel/redforge</a>
+        </div>
+      </section>
     </div>
   );
 }
@@ -2778,7 +3023,9 @@ function FirstRunWizard({ sidecarPort, onDone }: { sidecarPort: number; onDone: 
 
 export default function App() {
   const [activeView, setActiveView] = useState<keyof typeof views>("operations");
-  const [sidecar, setSidecar] = useState({ connected: false, port: 18765 });
+  // port: 0 means "not yet known" - frontend should wait for the first
+  // get_sidecar_status() invoke to fill it in with the real (possibly dynamic) port.
+  const [sidecar, setSidecar] = useState({ connected: false, port: 0 });
   const [isRestarting, setIsRestarting] = useState(false);
   const [onboarded, setOnboarded] = useState<boolean>(() => localStorage.getItem(ONBOARDING_KEY) === "1");
   const { activeOperation } = useRedForgeStore();
@@ -2805,6 +3052,19 @@ export default function App() {
   }
 
   const Active = ((views as any)[activeView] || (views as any)["operations"]).component;
+
+  // Sidecar starting splash (only shown until first port allocation arrives from Rust)
+  if (sidecar.port === 0) {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-background text-foreground">
+        <div className="text-center space-y-3">
+          <div className="text-2xl font-bold text-red-400">RedForge</div>
+          <div className="text-sm text-muted-foreground">Starting sidecar...</div>
+          <div className="text-xs text-muted-foreground/60">(picking a free local port and loading 697 ATT&CK techniques)</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">

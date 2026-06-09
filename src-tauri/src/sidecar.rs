@@ -5,9 +5,13 @@
 //! - Track its health via HTTP /health endpoint
 //! - Provide clean shutdown on app exit
 //!
-//! Port is currently fixed at 18765 for simplicity and easy debugging.
-//! This can be made dynamic later.
+//! Port is dynamically picked at startup. Preferred default is 18765 (for
+//! easy debugging - URL bar friendly) but if it's taken, we walk upward
+//! through 18766..18800 to find a free one. The selected port is exposed
+//! to the frontend via get_sidecar_status() and passed to the sidecar
+//! process via the REDFORGE_SIDECAR_PORT env var.
 
+use std::net::TcpListener;
 use std::process::{Child, Command};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -15,8 +19,22 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
-const SIDECAR_PORT: u16 = 18765;
-const SIDECAR_HEALTH_URL: &str = "http://127.0.0.1:18765/health";
+const PREFERRED_PORT: u16 = 18765;
+const PORT_SEARCH_RANGE: u16 = 35;  // tries 18765..=18799
+
+/// Pick the first port in [PREFERRED_PORT, PREFERRED_PORT + PORT_SEARCH_RANGE]
+/// that we can actually bind to on 127.0.0.1. Falls back to 18765 if nothing
+/// is bindable (caller will still get a useful error from the spawn attempt).
+fn pick_free_port() -> u16 {
+    for offset in 0..=PORT_SEARCH_RANGE {
+        let candidate = PREFERRED_PORT + offset;
+        if TcpListener::bind(("127.0.0.1", candidate)).is_ok() {
+            // Listener drops here, freeing the port for the sidecar to grab.
+            return candidate;
+        }
+    }
+    PREFERRED_PORT
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SidecarStatus {
@@ -33,9 +51,11 @@ pub struct SidecarManager {
 
 impl SidecarManager {
     pub fn new() -> Self {
+        let port = pick_free_port();
+        println!("[RedForge] Sidecar port allocated: {} (preferred {})", port, PREFERRED_PORT);
         Self {
             child: Arc::new(Mutex::new(None)),
-            port: SIDECAR_PORT,
+            port,
         }
     }
 
@@ -171,7 +191,8 @@ impl SidecarManager {
             .build()
             .unwrap();
 
-        match client.get(SIDECAR_HEALTH_URL).send().await {
+        let health_url = format!("http://127.0.0.1:{}/health", self.port);
+        match client.get(&health_url).send().await {
             Ok(resp) if resp.status().is_success() => {
                 // Try to parse the health response
                 if let Ok(json) = resp.json::<serde_json::Value>().await {

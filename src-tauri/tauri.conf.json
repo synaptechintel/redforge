@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "RedForge",
-  "version": "0.5.3",
+  "version": "0.6.0",
   "identifier": "com.redforge.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -29,6 +29,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": ["nsis", "msi", "appimage", "dmg"],
     "icon": [
       "icons/32x32.png",
@@ -58,5 +59,13 @@
     "externalBin": [
       "binaries/redforge-sidecar"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/synaptechintel/redforge/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEVFQTBDNzI1NDVCRDVGNzUKUldSMVg3MUZKY2VnN3ZjeUVoSnY1UnJqaFYzRUxOZVdKOVNibEh4cDZ4U0RrN0F0QmlNaG9WMU0K"
+    }
   }
 }

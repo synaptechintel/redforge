@@ -82,8 +82,33 @@ jobs:
       - name: Stage sidecar for Tauri
         run: copy sidecar\dist\redforge-sidecar.exe src-tauri\binaries\redforge-sidecar-x86_64-pc-windows-msvc.exe /Y
 
-      - name: Build Tauri installer
+      - name: Build Tauri installer (signed for updater)
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm run tauri build
+
+      - name: Generate updater manifest (latest.json)
+        shell: pwsh
+        run: |
+          $tag = "${{ github.event.inputs.tag || github.ref_name }}"
+          $version = $tag -replace "^v", ""
+          $setupExe = Get-ChildItem "src-tauri\target\release\bundle\nsis\RedForge_${version}_x64-setup.exe"
+          $sigFile = "$($setupExe.FullName).sig"
+          $signature = if (Test-Path $sigFile) { Get-Content $sigFile -Raw } else { "" }
+          $manifest = @{
+            version = $version
+            notes = "See https://github.com/synaptechintel/redforge/releases/tag/$tag for the full release notes."
+            pub_date = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ" -AsUTC)
+            platforms = @{
+              "windows-x86_64" = @{
+                signature = $signature.Trim()
+                url = "https://github.com/synaptechintel/redforge/releases/download/$tag/RedForge_${version}_x64-setup.exe"
+              }
+            }
+          }
+          $manifest | ConvertTo-Json -Depth 5 | Out-File -FilePath "latest.json" -Encoding utf8
+          Get-Content "latest.json"
 
       - name: Build portable ZIP
         shell: pwsh
@@ -105,5 +130,7 @@ jobs:
           fail_on_unmatched_files: true
           files: |
             src-tauri/target/release/bundle/nsis/RedForge_*_x64-setup.exe
+            src-tauri/target/release/bundle/nsis/RedForge_*_x64-setup.exe.sig
             src-tauri/target/release/bundle/msi/RedForge_*_x64_en-US.msi
             RedForge_*_x64-portable.zip
+            latest.json

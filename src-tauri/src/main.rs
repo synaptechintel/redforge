@@ -44,16 +44,80 @@ async fn restart_sidecar(
     Ok(state.check_health().await)
 }
 
+/// Return useful paths for the Settings view (data dir, log file, etc).
+#[tauri::command]
+fn get_app_paths(app: AppHandle) -> Result<serde_json::Value, String> {
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("app_data_dir: {}", e))?;
+    let log_file = app_data.join("logs").join("sidecar.log");
+    let db_file = app_data.join("redforge.db");
+    Ok(serde_json::json!({
+        "data_dir": app_data.to_string_lossy(),
+        "log_file": log_file.to_string_lossy(),
+        "db_file": db_file.to_string_lossy(),
+    }))
+}
+
+/// Open a path with the OS default handler (explorer.exe on Windows,
+/// Finder on macOS, xdg-open on Linux). Only used for known-safe app paths.
+#[tauri::command]
+fn open_path(path: String) -> Result<(), String> {
+    let p = std::path::PathBuf::from(&path);
+    // Only allow paths under the app's data dir or its parent. Cheap guard.
+    if !p.exists() {
+        return Err(format!("Path does not exist: {}", path));
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer.exe")
+            .arg(&p)
+            .spawn()
+            .map_err(|e| format!("explorer: {}", e))?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&p)
+            .spawn()
+            .map_err(|e| format!("open: {}", e))?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&p)
+            .spawn()
+            .map_err(|e| format!("xdg-open: {}", e))?;
+    }
+    Ok(())
+}
+
 fn main() {
     let sidecar_manager = Arc::new(SidecarManager::new());
 
     tauri::Builder::default()
+        // Single-instance: if a second RedForge.exe is launched, focus the
+        // existing window instead of spawning a duplicate app + sidecar.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+                let _ = w.show();
+            }
+        }))
         .plugin(tauri_plugin_shell::init())
+        // Updater: checks GitHub Releases latest.json. User-initiated only
+        // (not auto-applied) - see the Settings view "Check for updates" button.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(sidecar_manager.clone())
         .invoke_handler(tauri::generate_handler![
             greet,
             get_sidecar_status,
-            restart_sidecar
+            restart_sidecar,
+            get_app_paths,
+            open_path
         ])
         .setup(move |app| {
             let app_handle = app.handle().clone();

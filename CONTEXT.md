@@ -4,7 +4,7 @@
 > Read it before starting work; update it as you finish meaningful tasks.
 > Keeps the cost of context-switching low and the cost of repeating past mistakes near zero.
 
-**Last updated:** 2026-06-09 (v0.5.3 published)
+**Last updated:** 2026-06-09 (v0.6.0 in development - all Tier 2 done)
 
 ---
 
@@ -278,11 +278,11 @@ Invoke-RestMethod "http://127.0.0.1:18765/api/ollama/status"
 - [ ] **Code signing** ($150-500/yr) — eliminates SmartScreen warning. Major install-rate blocker.
 - [ ] **Antivirus whitelisting** — submit `redforge-sidecar.exe` to Microsoft for clean-binary review
 
-**Tier 2 (polish):**
-- [ ] **Auto-updater** — Tauri 2 built-in. Needs signing key + update manifest server (can be GitHub Releases).
-- [ ] **Single-instance lock** — `tauri-plugin-single-instance` so double-clicking doesn't spawn 2 apps.
-- [ ] **Dynamic sidecar port** — pick free port instead of hardcoded 18765. Currently silently fails if port is taken.
-- [ ] **Settings view** — currently a stub. Should have Ollama model picker, log location, "factory reset", "show first-run wizard again".
+**Tier 2 (polish) — ALL DONE in v0.6.0:**
+- [x] **Auto-updater** — `tauri-plugin-updater` wired up. Settings view has "Check for updates" button. Updates pulled from GitHub Releases `latest.json` manifest. Signed with key at `~/.tauri/redforge-updater.key`. See "Auto-updater setup" section below for GitHub Actions secrets.
+- [x] **Single-instance lock** — `tauri-plugin-single-instance` focuses existing window if second instance launches.
+- [x] **Dynamic sidecar port** — `pick_free_port()` walks 18765..=18799 looking for a bindable port. Selected port passed to sidecar via `REDFORGE_SIDECAR_PORT` env. Frontend waits for `sidecar.port > 0` before rendering main UI.
+- [x] **Settings view** — full rewrite: sidecar status panel, Ollama detection w/ installed models list, data paths w/ "Open" buttons, OPSEC checklist, "Show first-run wizard again" button, check-for-updates flow, version footer.
 
 **Tier 3 (CI/CD + portability):**
 - [ ] **Linux/macOS builds** — AppImage + .dmg. Tauri supports both natively but they're untested here.
@@ -303,6 +303,38 @@ Invoke-RestMethod "http://127.0.0.1:18765/api/ollama/status"
 5. **PyInstaller builds fail intermittently on Windows due to Defender locking files.** Build twice if the first one fails — usually works the second time once Defender is done scanning.
 
 6. **PowerShell heredocs in Bash tool break on inline double-quotes** in commit messages. Use temp file approach: `Write` the message to `.commit-msg.tmp` then `git commit -F`.
+
+---
+
+## Auto-updater setup (one-time)
+
+The auto-updater is wired up and ships with v0.6.0+. For new releases to be installable
+via the in-app "Check for updates" button, the GitHub Actions release workflow must
+sign the installer with our private updater key.
+
+**Keys are at `~/.tauri/redforge-updater.key` (private) and `~/.tauri/redforge-updater.key.pub` (public).**
+The pubkey is already embedded in `src-tauri/tauri.conf.json` under `plugins.updater.pubkey`.
+
+**Required GitHub repo secrets** (Settings → Secrets and variables → Actions):
+- `TAURI_SIGNING_PRIVATE_KEY` — contents of `~/.tauri/redforge-updater.key` (the whole file)
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — currently `redforge-updater-dev-password` (CHANGE THIS for prod)
+
+To set them via gh CLI:
+```powershell
+gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/redforge-updater.key
+gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD --body "redforge-updater-dev-password"
+```
+
+When the `release.yml` workflow runs on a `v*` tag push:
+1. Tauri build produces `RedForge_X.Y.Z_x64-setup.exe` + `RedForge_X.Y.Z_x64-setup.exe.sig`
+2. Workflow generates `latest.json` with version + signature + download URL
+3. All 3 files (installer + .sig + latest.json) attached to the GitHub Release
+4. The updater plugin in installed clients fetches `latest.json` from `releases/latest/download/latest.json`
+5. If new version available, verifies .sig matches `pubkey` in tauri.conf.json, then downloads + installs
+
+**To rotate keys:** generate new pair, update `pubkey` in tauri.conf.json, update GitHub secrets, ship a release. Clients on the old pubkey will be stuck — they can manually download next release once, after that auto-updates resume.
+
+**Updates are signed but not code-signed.** SmartScreen will still warn until we get a code-signing cert. Updater verifies update authenticity (so an attacker can't push a malicious update through latest.json) but doesn't bypass SmartScreen.
 
 ---
 
