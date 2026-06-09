@@ -4,7 +4,7 @@
 > Read it before starting work; update it as you finish meaningful tasks.
 > Keeps the cost of context-switching low and the cost of repeating past mistakes near zero.
 
-**Last updated:** 2026-06-09 (v0.5.3 in active development)
+**Last updated:** 2026-06-09 (v0.5.3 published)
 
 ---
 
@@ -21,9 +21,9 @@ Build one-click: `Build-Release.bat` → installer + portable in `src-tauri\targ
 
 ## Current state
 
-**Latest published release:** [v0.5.2](https://github.com/synaptechintel/redforge/releases/tag/v0.5.2) — first release where everything actually works end-to-end.
+**Latest published release:** [v0.5.3](https://github.com/synaptechintel/redforge/releases/tag/v0.5.3) — first-run wizard, no-UAC install, smarter loading UX, CI/CD workflows, README rewrite.
 
-**In development:** v0.5.3 — launch polish (first-run wizard, per-user install, smarter loading UX, CI/CD workflows, README rewrite).
+**In development:** v0.6.0 — see "Active TODOs / Roadmap" below for the Tier 1 launch blockers (code signing, AV whitelisting, auto-updater).
 
 **Working locally:** `C:\Users\waspf\rftest\redforge` (main work dir). Also a fresh clone at `C:\Users\waspf\dev\redforge` (less used). User's deployed copy: `C:\Users\waspf\Downloads\RedForge_0.5.0_x64-portable\` (folder name says 0.5.0, files inside get hot-swapped during testing).
 
@@ -265,14 +265,14 @@ Invoke-RestMethod "http://127.0.0.1:18765/api/ollama/status"
 
 ## Active TODOs / Roadmap
 
-**Immediate (v0.5.3):**
+**v0.5.3 (DONE — shipped 2026-06-09):**
 - [x] Per-user NSIS install (no UAC)
 - [x] WebView2 bootstrapper bundled
 - [x] First-run wizard (auth checkbox + Ollama detection)
 - [x] Smarter "thinking..." loading UX with cold-start explanation
 - [x] GitHub Actions CI (smoke test + release workflow)
 - [x] README rewrite for end users
-- [ ] Build & ship v0.5.3 release
+- [x] Build & publish v0.5.3 release
 
 **Tier 1 (blocking real launch):**
 - [ ] **Code signing** ($150-500/yr) — eliminates SmartScreen warning. Major install-rate blocker.
