@@ -284,14 +284,15 @@ Normal! The first `tauri dev` compiles the entire Rust backend (~3-5 minutes). E
 The Python backend didn't start. Click the "Restart" button next to "Sidecar: down" in the top bar. If it keeps failing, check that your Python venv exists (`sidecar\.venv` folder) and has the dependencies installed.
 
 ### Red Team Leader says "Error reaching the assistant backend"
-Ollama isn't running. Open a terminal and run:
-```
-ollama serve
-```
-Leave it running. Then in another terminal:
-```
-ollama pull llama3.1:8b
-```
+Three common causes:
+
+1. **Ollama isn't running.** Start it: `ollama serve` (or launch the Ollama app).
+2. **No models installed.** Run: `ollama pull llama3.1:8b` (recommended) or any other model.
+3. **You have a different model than the default.** RedForge auto-detects an installed model from a preferred list (`llama3.1`, `llama3`, `qwen2.5`, `mistral`, `gemma2`, `gemma`). If yours isn't matched, override it:
+   - Set environment variable `REDFORGE_OLLAMA_MODEL=your-model-name` before launching RedForge
+   - e.g. PowerShell: `$env:REDFORGE_OLLAMA_MODEL = "gemma:7b"; .\RedForge.exe`
+
+To diagnose, with the app running visit `http://127.0.0.1:18765/api/ollama/status` — shows what's detected and a tip if something's wrong.
 
 ### I want to start fresh
 Delete the `.redforge-setup-done` file in the project root, then double-click `RedForge.bat` again. It will redo all setup.

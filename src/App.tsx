@@ -33,6 +33,7 @@ import {
   bulkCreateAssets,
   listCredentials,
   testRemoteAccess,
+  executeRemoteCommand,
   type TimelineEvent,
   type TimelineEventCreate,
   type Chain,
@@ -697,7 +698,7 @@ function ReconView({ sidecarPort }: { sidecarPort: number }) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               message: `Recon just completed on ${target}. Discovered ${count} services. What is my best next move in the kill chain? Use the exact hosts and ports from my assets.`,
-              operation_id: activeOperation.id,
+              operation_id: activeOperation!.id,
             }),
           }).catch(() => {});
         }
@@ -743,7 +744,7 @@ function ReconView({ sidecarPort }: { sidecarPort: number }) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               message: `I pasted recon output and discovered ${res.count} services. Help me decide the next phase of the kill chain using the real discovered hosts/ports.`,
-              operation_id: activeOperation.id,
+              operation_id: activeOperation!.id,
             }),
           }).catch(() => {});
         }
@@ -1296,8 +1297,481 @@ function ExecutionView({ sidecarPort }: { sidecarPort: number }) {
     );
   }
 
-  // Minimal return for build stability
-  return <div className="p-4">Execution (minimal for clean build - remote logic preserved)</div>;
+  // Lock the non-null narrowing for use inside async closures (TS can't carry the narrowing across them)
+  const op = activeOperation;
+
+  // ───────────────────────── helpers ──────────────────────────
+  const isRemote = execMode === "winrm" || execMode === "psexec";
+  const uniqueHosts = Array.from(new Set(remoteAssets.map((a) => a.host))).filter(Boolean);
+
+  function loadCredentialIntoForm(c: any) {
+    setRemoteUser(c.username || "");
+    if (c.password) {
+      setRemotePass(c.password);
+      setRemoteHash("");
+    } else if (c.hash || c.ntlm_hash) {
+      setRemoteHash(c.hash || c.ntlm_hash);
+      setRemotePass("");
+    }
+    if (c.domain) setRemoteDomain(c.domain);
+    toast.success(`Loaded credentials for ${c.username}`);
+  }
+
+  async function handleExecute() {
+    if (!command.trim()) {
+      toast.error("Enter a command first");
+      return;
+    }
+    setLoading(true);
+    try {
+      let resp: any;
+      if (execMode === "local") {
+        resp = await executeLocalCommand(
+          {
+            command: command.trim(),
+            operation_id: op.id,
+            technique_id: technique || null,
+            notes: notes.trim() || null,
+          },
+          sidecarPort
+        );
+      } else {
+        if (!remoteHost.trim() || !remoteUser.trim()) {
+          toast.error("Host + Username required for remote execution");
+          setLoading(false);
+          return;
+        }
+        if (!remotePass.trim() && !remoteHash.trim()) {
+          toast.error("Provide either Password or NTLM Hash");
+          setLoading(false);
+          return;
+        }
+        resp = await executeRemoteCommand(
+          {
+            host: remoteHost.trim(),
+            command: command.trim(),
+            username: remoteUser.trim(),
+            password: remotePass.trim() || null,
+            hash: remoteHash.trim() || null,
+            domain: remoteDomain.trim() || "",
+            execution_method: execMode,
+            port: remotePort,
+            operation_id: op.id,
+            technique_id: technique || null,
+            notes: notes.trim() || null,
+          },
+          sidecarPort
+        );
+        setLastRemoteResult(resp);
+      }
+      const summary =
+        `[exit=${resp.exit_code ?? "?"}, ${resp.duration_ms}ms] ` +
+        (resp.success ? "OK" : "FAILED") +
+        (resp.extracted_assets ? `, +${resp.extracted_assets} assets` : "") +
+        (resp.extracted_creds ? `, +${resp.extracted_creds} creds` : "");
+      toast.success(`Executed: ${summary}`);
+      await refresh();
+    } catch (e: any) {
+      toast.error(`Execution failed: ${e?.message || e}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleTestRemote() {
+    if (!remoteHost.trim() || !remoteUser.trim()) {
+      toast.error("Host + Username required");
+      return;
+    }
+    setTestingRemote(true);
+    try {
+      const r = await testRemoteAccess(
+        {
+          host: remoteHost.trim(),
+          username: remoteUser.trim(),
+          password: remotePass.trim() || null,
+          hash: remoteHash.trim() || null,
+          domain: remoteDomain.trim() || "",
+          execution_method: execMode as "winrm" | "psexec",
+          port: remotePort,
+          operation_id: op.id,
+        },
+        sidecarPort
+      );
+      setLastRemoteTest(r);
+      if (r.success) {
+        toast.success(`Connected as ${r.user ?? remoteUser} @ ${r.hostname ?? remoteHost}`);
+      } else {
+        toast.error("Connection failed - see details below");
+      }
+    } catch (e: any) {
+      toast.error(`Test failed: ${e?.message || e}`);
+    } finally {
+      setTestingRemote(false);
+    }
+  }
+
+  async function handleGenerateNext() {
+    if (!pastedOutput.trim()) {
+      toast.error("Paste some output first (or run a command)");
+      return;
+    }
+    setLoading(true);
+    try {
+      const r = await generateNextCommand(
+        {
+          output: pastedOutput,
+          target_os: generateOs,
+          execution_method: execMode,
+          output_type: generateType,
+          scenario: generateScenario || undefined,
+        },
+        sidecarPort
+      );
+      setGeneratedCommand(r.suggested_command);
+      setEditableTargets(r.extracted_targets || []);
+      setSuggestedTools(r.suggested_tools || []);
+      if (r.technique) setTechnique(r.technique);
+      toast.success(`Generated: ${r.technique || "next step"}`);
+    } catch (e: any) {
+      toast.error(`Generate failed: ${e?.message || e}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // ───────────────────────── UI ──────────────────────────
+  return (
+    <div className="p-4 space-y-4 overflow-y-auto h-full">
+      {/* Header strip */}
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-bold">Execution Console</h2>
+          <div className="text-xs text-muted-foreground">
+            Operation: <span className="text-foreground">{op.name}</span> · Everything you run is auto-logged to this op's timeline.
+          </div>
+        </div>
+        <div className="flex gap-1 rounded border border-border bg-zinc-950 p-1">
+          {(["local", "winrm", "psexec"] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => setExecMode(m)}
+              className={`px-3 py-1 text-sm rounded ${execMode === m ? "bg-red-600 text-white" : "text-muted-foreground hover:bg-zinc-800"}`}
+            >
+              {m.toUpperCase()}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Remote target panel (only when remote mode) */}
+      {isRemote && (
+        <div className="rounded-lg border border-amber-900/40 bg-amber-950/10 p-4 space-y-3">
+          <div className="text-sm font-semibold text-amber-300">Remote target ({execMode})</div>
+
+          {/* Pickers */}
+          {(uniqueHosts.length > 0 || remoteCreds.length > 0) && (
+            <div className="flex gap-2 flex-wrap text-xs">
+              {uniqueHosts.length > 0 && (
+                <div className="flex items-center gap-1">
+                  <span className="text-muted-foreground">Discovered hosts:</span>
+                  {uniqueHosts.slice(0, 6).map((h) => (
+                    <button
+                      key={h}
+                      onClick={() => {
+                        setRemoteHost(h);
+                        pickBestRemoteMethodForHost(h);
+                      }}
+                      className="rounded border border-border bg-zinc-900 hover:bg-zinc-800 px-2 py-1 font-mono"
+                    >
+                      {h}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {remoteCreds.length > 0 && (
+                <div className="flex items-center gap-1">
+                  <span className="text-muted-foreground">Saved creds:</span>
+                  {remoteCreds.slice(0, 4).map((c, i) => (
+                    <button
+                      key={i}
+                      onClick={() => loadCredentialIntoForm(c)}
+                      className="rounded border border-border bg-zinc-900 hover:bg-zinc-800 px-2 py-1 font-mono"
+                    >
+                      {c.username}{c.domain ? `@${c.domain}` : ""}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            <input
+              value={remoteHost}
+              onChange={(e) => setRemoteHost(e.target.value)}
+              placeholder="Host (IP or hostname)"
+              className="rounded border border-border bg-zinc-900 px-2 py-1.5 text-sm font-mono"
+            />
+            <input
+              value={remoteUser}
+              onChange={(e) => setRemoteUser(e.target.value)}
+              placeholder="Username"
+              className="rounded border border-border bg-zinc-900 px-2 py-1.5 text-sm font-mono"
+            />
+            <input
+              value={remoteDomain}
+              onChange={(e) => setRemoteDomain(e.target.value)}
+              placeholder="Domain (optional)"
+              className="rounded border border-border bg-zinc-900 px-2 py-1.5 text-sm font-mono"
+            />
+            {execMode === "winrm" && (
+              <input
+                type="number"
+                value={remotePort ?? ""}
+                onChange={(e) => setRemotePort(e.target.value ? Number(e.target.value) : null)}
+                placeholder="Port (5985/5986)"
+                className="rounded border border-border bg-zinc-900 px-2 py-1.5 text-sm font-mono"
+              />
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <input
+              type="password"
+              value={remotePass}
+              onChange={(e) => setRemotePass(e.target.value)}
+              placeholder="Password"
+              className="rounded border border-border bg-zinc-900 px-2 py-1.5 text-sm font-mono"
+            />
+            <input
+              value={remoteHash}
+              onChange={(e) => setRemoteHash(e.target.value)}
+              placeholder="OR NTLM hash (pass-the-hash)"
+              className="rounded border border-border bg-zinc-900 px-2 py-1.5 text-sm font-mono"
+            />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleTestRemote}
+              disabled={testingRemote}
+              className="rounded bg-amber-700 hover:bg-amber-600 disabled:opacity-50 text-white px-3 py-1.5 text-sm"
+            >
+              {testingRemote ? "Testing..." : "Test Connection"}
+            </button>
+            {lastRemoteTest && (
+              <span className={`text-xs ${lastRemoteTest.success ? "text-green-400" : "text-red-400"}`}>
+                {lastRemoteTest.success
+                  ? `OK: ${lastRemoteTest.user ?? "?"} @ ${lastRemoteTest.hostname ?? "?"} (${lastRemoteTest.os_info ?? "?"})`
+                  : `FAIL (${lastRemoteTest.duration_ms}ms)`}
+              </span>
+            )}
+          </div>
+
+          {lastRemoteTest && !lastRemoteTest.success && lastRemoteTest.tips?.length > 0 && (
+            <div className="text-xs text-amber-300 bg-amber-950/30 rounded p-2 space-y-0.5">
+              {lastRemoteTest.tips.map((t: string, i: number) => (
+                <div key={i}>• {t}</div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Command + technique + notes */}
+      <div className="rounded-lg border border-border bg-zinc-950 p-4 space-y-3">
+        <div className="space-y-2">
+          <label className="text-xs uppercase text-muted-foreground tracking-wider">Command / action</label>
+          <textarea
+            value={command}
+            onChange={(e) => setCommand(e.target.value)}
+            placeholder={execMode === "local" ? "whoami /all" : "Get-Service WinRM"}
+            rows={3}
+            className="w-full rounded border border-border bg-zinc-900 px-3 py-2 text-sm font-mono"
+          />
+        </div>
+
+        {suggestedTechniques.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1 text-xs">
+            <span className="text-muted-foreground">Suggested techniques:</span>
+            {suggestedTechniques.slice(0, 6).map((s: any) => (
+              <button
+                key={s.external_id}
+                onClick={() => setTechnique(s.external_id)}
+                title={s.name}
+                className={`rounded px-2 py-0.5 font-mono ${technique === s.external_id ? "bg-red-700 text-white" : "bg-zinc-900 hover:bg-zinc-800 border border-border"}`}
+              >
+                {s.external_id}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-2">
+          <input
+            value={technique}
+            onChange={(e) => setTechnique(e.target.value)}
+            placeholder="MITRE ATT&CK technique (e.g. T1003.001)"
+            className="rounded border border-border bg-zinc-900 px-2 py-1.5 text-sm font-mono"
+          />
+          <select
+            value={result}
+            onChange={(e) => setResult(e.target.value)}
+            className="rounded border border-border bg-zinc-900 px-2 py-1.5 text-sm"
+          >
+            <option value="success">Result: Success</option>
+            <option value="partial">Result: Partial</option>
+            <option value="failed">Result: Failed</option>
+            <option value="blocked">Result: Blocked / Detected</option>
+          </select>
+        </div>
+
+        <textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Notes (optional)"
+          rows={2}
+          className="w-full rounded border border-border bg-zinc-900 px-2 py-1.5 text-sm"
+        />
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleExecute}
+            disabled={loading}
+            className="rounded bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white px-4 py-2 text-sm font-semibold"
+          >
+            {loading ? "Running..." : `Execute ${execMode === "local" ? "locally" : `via ${execMode.toUpperCase()}`}`}
+          </button>
+          <button
+            onClick={handleLogExecution}
+            disabled={loading}
+            className="rounded border border-border bg-zinc-900 hover:bg-zinc-800 px-3 py-2 text-sm"
+            title="Log this as a manual / external execution without actually running it"
+          >
+            Log only (don't run)
+          </button>
+          {progressSuggestions.length > 0 && (
+            <button
+              onClick={() => loadProgressSuggestions(true)}
+              className="ml-auto rounded border border-border bg-zinc-900 hover:bg-zinc-800 px-3 py-2 text-xs"
+              title="Use auto-suggested next command based on what you've discovered"
+            >
+              ↻ Auto-suggest next
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Remote execution result */}
+      {lastRemoteResult && (
+        <div className="rounded-lg border border-border bg-zinc-950 p-4 space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="text-sm font-semibold">Last remote execution</div>
+            <div className={`text-xs ${lastRemoteResult.success ? "text-green-400" : "text-red-400"}`}>
+              exit={lastRemoteResult.exit_code ?? "?"} · {lastRemoteResult.duration_ms}ms · {lastRemoteResult.success ? "OK" : "FAILED"}
+            </div>
+          </div>
+          {lastRemoteResult.stdout && (
+            <pre className="text-xs font-mono bg-black/40 rounded p-2 max-h-60 overflow-auto whitespace-pre-wrap">{lastRemoteResult.stdout}</pre>
+          )}
+          {lastRemoteResult.stderr && (
+            <pre className="text-xs font-mono text-red-300 bg-black/40 rounded p-2 max-h-32 overflow-auto whitespace-pre-wrap">{lastRemoteResult.stderr}</pre>
+          )}
+        </div>
+      )}
+
+      {/* Paste Output → Generate Next Command */}
+      <div className="rounded-lg border border-border bg-zinc-950 p-4 space-y-2">
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-semibold">Paste output → generate next command</div>
+          <div className="flex gap-1">
+            <select
+              value={generateOs}
+              onChange={(e) => setGenerateOs(e.target.value as any)}
+              className="rounded border border-border bg-zinc-900 px-2 py-1 text-xs"
+            >
+              <option value="windows">Windows</option>
+              <option value="linux">Linux</option>
+            </select>
+            <select
+              value={generateType}
+              onChange={(e) => setGenerateType(e.target.value as any)}
+              className="rounded border border-border bg-zinc-900 px-2 py-1 text-xs"
+            >
+              <option value="command">Command</option>
+              <option value="script">Script</option>
+            </select>
+            <input
+              value={generateScenario}
+              onChange={(e) => setGenerateScenario(e.target.value)}
+              placeholder="scenario (lateral_movement, recon, ...)"
+              className="rounded border border-border bg-zinc-900 px-2 py-1 text-xs"
+            />
+          </div>
+        </div>
+        <textarea
+          value={pastedOutput}
+          onChange={(e) => setPastedOutput(e.target.value)}
+          placeholder="Paste nmap output, command result, anything..."
+          rows={4}
+          className="w-full rounded border border-border bg-zinc-900 px-2 py-1.5 text-xs font-mono"
+        />
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleGenerateNext}
+            disabled={loading}
+            className="rounded bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white px-3 py-1.5 text-xs"
+          >
+            Generate next command
+          </button>
+          {editableTargets.length > 0 && (
+            <span className="text-xs text-muted-foreground">Targets: {editableTargets.join(", ")}</span>
+          )}
+          {suggestedTools.length > 0 && (
+            <span className="text-xs text-muted-foreground">Tools: {suggestedTools.join(", ")}</span>
+          )}
+        </div>
+        {generatedCommand && (
+          <div className="flex items-start gap-2 rounded bg-zinc-900 p-2 border border-border">
+            <pre className="flex-1 text-xs font-mono whitespace-pre-wrap">{generatedCommand}</pre>
+            <button
+              onClick={() => {
+                setCommand(generatedCommand);
+                toast.success("Loaded into command box");
+              }}
+              className="rounded bg-red-600 hover:bg-red-500 text-white px-2 py-1 text-xs"
+            >
+              Load
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Timeline */}
+      <div className="rounded-lg border border-border bg-zinc-950 p-4">
+        <div className="text-sm font-semibold mb-2">
+          Recent timeline ({timeline.length} events)
+        </div>
+        {timeline.length === 0 ? (
+          <div className="text-xs text-muted-foreground">No events yet. Run a command above to log one.</div>
+        ) : (
+          <div className="space-y-1 text-xs font-mono max-h-72 overflow-y-auto">
+            {timeline.slice(0, 25).map((ev) => (
+              <div key={ev.id} className="grid grid-cols-[10ch_8ch_1fr] gap-2 border-b border-border/50 pb-1">
+                <span className="text-muted-foreground">{ev.timestamp.slice(11, 16)}</span>
+                <span className="text-amber-300">{ev.type}</span>
+                <span className="truncate">
+                  {ev.technique_id ? <span className="text-red-400">[{ev.technique_id}]</span> : null}{" "}
+                  {ev.command || ev.notes || "—"}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 function AiView() {
   const { activeOperation } = useRedForgeStore();
@@ -1623,7 +2097,9 @@ function AssistantView({ sidecarPort }: { sidecarPort: number }) {
     setLoading(true);
 
     try {
-      const res = await fetch(`http://127.0.0.1:${sidecarPort}/api/assistant`, {
+      const url = `http://127.0.0.1:${sidecarPort}/api/assistant`;
+      console.log("[assistant] POST", url);
+      const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1635,10 +2111,19 @@ function AssistantView({ sidecarPort }: { sidecarPort: number }) {
         }),
       });
 
+      console.log("[assistant] response", res.status, res.statusText);
+      if (!res.ok) {
+        const text = await res.text().catch(() => "(no body)");
+        setMessages(prev => [...prev, { role: "assistant", content: `Backend returned ${res.status}: ${text.substring(0,300)}` }]);
+        return;
+      }
       const data = await res.json();
       setMessages(prev => [...prev, { role: "assistant", content: data.reply }]);
-    } catch {
-      setMessages(prev => [...prev, { role: "assistant", content: "Error reaching the assistant backend." }]);
+    } catch (e: any) {
+      console.error("[assistant] fetch failed:", e);
+      const errMsg = e?.message || String(e);
+      const diag = `Could not reach backend at http://127.0.0.1:${sidecarPort}/api/assistant\n\nError: ${errMsg}\n\nPress F12 → Console for the full browser-level error.`;
+      setMessages(prev => [...prev, { role: "assistant", content: diag }]);
     } finally {
       setLoading(false);
     }
@@ -1720,7 +2205,7 @@ function AssistantView({ sidecarPort }: { sidecarPort: number }) {
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({
                     message: "Generate a complete structured kill chain for this operation",
-                    operation_id: activeOperation.id,
+                    operation_id: activeOperation!.id,
                   }),
                 });
                 const plan = await res.json();
@@ -1917,7 +2402,7 @@ function ChainBuilder({ sidecarPort }: { sidecarPort: number }) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             message: "I just executed a step in my attack chain. Based on my current progress and discovered assets, what should be my next move? Give me 1-2 ready-to-use commands with real values if possible.",
-            operation_id: activeOperation.id,
+            operation_id: activeOperation!.id,
           }),
         });
         const data = await res.json();

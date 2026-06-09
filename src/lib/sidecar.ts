@@ -457,3 +457,30 @@ export async function testRemoteAccess(req: RemoteTestRequest, port?: number): P
   if (!res.ok) throw new Error("Remote test failed");
   return res.json();
 }
+
+export interface RemoteExecuteRequest {
+  host: string;
+  command: string;
+  username: string;
+  password?: string | null;
+  hash?: string | null;
+  domain?: string;
+  execution_method?: "winrm" | "psexec";
+  port?: number | null;
+  operation_id?: string | null;
+  technique_id?: string | null;
+  notes?: string | null;
+}
+
+export async function executeRemoteCommand(req: RemoteExecuteRequest, port?: number): Promise<ExecuteResponse> {
+  const res = await fetch(`${getBaseUrl(port)}/api/remote/execute`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Remote execution failed (${res.status}): ${text.substring(0, 200)}`);
+  }
+  return res.json();
+}

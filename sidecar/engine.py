@@ -57,14 +57,136 @@ from attack_data import (
 # Lifespan / startup
 # --------------------------------------------------------------------------- #
 
+# File-based logging (essential for production debugging because the
+# bundled sidecar's stdout is hidden by Tauri when launched as externalBin)
+import logging
+import logging.handlers
+
+
+# ─── Ollama model auto-discovery ──────────────────────────────────────
+# Users have different models. We want a sensible default that works
+# with whatever they have, with an env-var override for power users.
+_OLLAMA_MODEL_CACHE: str | None = None
+_OLLAMA_LAST_CHECK: float = 0.0
+
+# Preference order: smarter models first, then smaller fallbacks.
+_OLLAMA_PREFERRED_MODELS = [
+    "llama3.1:8b", "llama3:8b", "llama3.2:latest", "llama3.2:3b",
+    "qwen2.5:14b", "qwen2.5:7b",
+    "mistral:latest", "mistral:7b",
+    "command-r:latest",
+    "gemma2:9b", "gemma:7b", "gemma:2b",  # fallbacks for users with gemma
+]
+
+
+def get_ollama_model() -> str:
+    """Return the best available Ollama model, cached for 60 seconds.
+
+    Resolution order:
+      1. $REDFORGE_OLLAMA_MODEL env var (explicit user override)
+      2. First model from preferred list that the user actually has
+      3. First model the user has installed at all
+      4. Fallback string "llama3.1:8b" (will fail loudly if no Ollama)
+    """
+    global _OLLAMA_MODEL_CACHE, _OLLAMA_LAST_CHECK
+    import time
+
+    # Honor explicit override
+    env_model = os.getenv("REDFORGE_OLLAMA_MODEL", "").strip()
+    if env_model:
+        return env_model
+
+    # 60-second cache
+    now = time.time()
+    if _OLLAMA_MODEL_CACHE and (now - _OLLAMA_LAST_CHECK) < 60:
+        return _OLLAMA_MODEL_CACHE
+
+    try:
+        import ollama
+        resp = ollama.list()
+        # Different ollama-python versions return slightly different shapes
+        installed: list[str] = []
+        # ollama-python pre-0.5 used dict with "name"; 0.5+ uses Model object
+        # with "model" attribute. Handle both.
+        models = resp.get("models") if isinstance(resp, dict) else getattr(resp, "models", [])
+        for m in models or []:
+            if isinstance(m, dict):
+                name = m.get("model") or m.get("name")
+            else:
+                name = getattr(m, "model", None) or getattr(m, "name", None)
+            if name:
+                installed.append(name)
+
+        # Pick first preferred model that is actually installed
+        for pref in _OLLAMA_PREFERRED_MODELS:
+            if pref in installed:
+                _OLLAMA_MODEL_CACHE = pref
+                _OLLAMA_LAST_CHECK = now
+                logging.info(f"[ollama] Selected preferred model: {pref}")
+                return pref
+
+        # Otherwise use the first installed model
+        if installed:
+            _OLLAMA_MODEL_CACHE = installed[0]
+            _OLLAMA_LAST_CHECK = now
+            logging.info(f"[ollama] No preferred model installed, using: {installed[0]}")
+            return installed[0]
+    except Exception as e:
+        logging.warning(f"[ollama] Could not list installed models: {e}")
+
+    # Last resort
+    return "llama3.1:8b"
+
+
+def _setup_file_logging():
+    """Set up rotating file logging in the data dir so users (and we)
+    can see what the sidecar is doing in production."""
+    try:
+        data_dir = get_data_dir()
+        data_dir.mkdir(parents=True, exist_ok=True)
+        log_dir = data_dir / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = log_dir / "sidecar.log"
+
+        handler = logging.handlers.RotatingFileHandler(
+            log_file, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
+        )
+        fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+        handler.setFormatter(fmt)
+
+        root = logging.getLogger()
+        root.setLevel(logging.INFO)
+        root.addHandler(handler)
+
+        # Capture uvicorn access logs to the file too
+        for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+            logger = logging.getLogger(name)
+            logger.addHandler(handler)
+            logger.setLevel(logging.INFO)
+
+        logging.info(f"[RedForge Sidecar] File logging initialized: {log_file}")
+        return log_file
+    except Exception as e:
+        print(f"[RedForge Sidecar] Could not set up file logging: {e}")
+        return None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    log_file = _setup_file_logging()
+
     print("[RedForge Sidecar] Starting engine...")
+    logging.info("[RedForge Sidecar] Starting engine...")
+
     data_dir = get_data_dir()
     print(f"[RedForge Sidecar] Data directory: {data_dir}")
+    logging.info(f"[RedForge Sidecar] Data directory: {data_dir}")
+    if log_file:
+        print(f"[RedForge Sidecar] Log file: {log_file}")
 
     db = await get_db()
     print(f"[RedForge Sidecar] Database ready at: {db.db_path}")
+    logging.info(f"[RedForge Sidecar] Database ready at: {db.db_path}")
 
     # Load ATT&CK data in the background so the sidecar becomes usable immediately
     asyncio.create_task(asyncio.to_thread(load_attack_data))
@@ -73,6 +195,7 @@ async def lifespan(app: FastAPI):
 
     await close_db()
     print("[RedForge Sidecar] Shutting down.")
+    logging.info("[RedForge Sidecar] Shutting down.")
 
 
 app = FastAPI(
@@ -83,18 +206,19 @@ app = FastAPI(
     redoc_url=None,
 )
 
-# CORS: Allow any local origin (Tauri's WebView2 uses different schemes per OS:
-# Windows: https://tauri.localhost, macOS/Linux: tauri://localhost,
-# Dev mode: http://localhost:1420, etc.)
+# CORS: Allow any local origin. Tauri's WebView2 uses different schemes per OS
+# AND per Tauri version:
+#   Windows (Tauri 2.x): http://tauri.localhost   <-- actual confirmed origin
+#   macOS/Linux:          tauri://localhost
+#   Dev mode:             http://localhost:1420
 # Wildcards like "http://localhost:*" are NOT supported in allow_origins;
-# we have to use allow_origin_regex.
-# Safe because the sidecar only binds to 127.0.0.1.
+# we have to use allow_origin_regex. Safe because the sidecar only binds to 127.0.0.1.
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=(
         r"^(https?://(localhost|127\.0\.0\.1)(:\d+)?"
         r"|tauri://localhost"
-        r"|https://tauri\.localhost)$"
+        r"|https?://tauri\.localhost)$"   # both http AND https - Tauri 2 on Win uses http
     ),
     allow_credentials=True,
     allow_methods=["*"],
@@ -153,6 +277,45 @@ async def health() -> HealthResponse:
 async def greet(req: GreetRequest) -> GreetResponse:
     """Simple example RPC endpoint."""
     return GreetResponse(message=f"Sidecar says hello to {req.name}")
+
+
+@app.get("/api/ollama/status")
+async def ollama_status() -> dict[str, Any]:
+    """Diagnose Ollama availability + which model would be used."""
+    out: dict[str, Any] = {"ollama_installed": False, "ollama_running": False,
+                           "selected_model": None, "available_models": [],
+                           "tip": None}
+    try:
+        import ollama
+        out["ollama_installed"] = True
+    except ImportError:
+        out["tip"] = "Ollama Python client not installed (this should be bundled - reinstall RedForge)."
+        return out
+
+    try:
+        resp = ollama.list()
+        out["ollama_running"] = True
+        models_field = resp.get("models") if isinstance(resp, dict) else getattr(resp, "models", [])
+        names: list[str] = []
+        for m in models_field or []:
+            if isinstance(m, dict):
+                n = m.get("model") or m.get("name")
+            else:
+                n = getattr(m, "model", None) or getattr(m, "name", None)
+            if n:
+                names.append(n)
+        out["available_models"] = names
+
+        if not names:
+            out["tip"] = "Ollama is running but no models are installed. Run: ollama pull llama3.1:8b"
+        else:
+            out["selected_model"] = get_ollama_model()
+            if not any(out["selected_model"] in n for n in names):
+                out["tip"] = f"Selected model '{out['selected_model']}' not in installed list."
+    except Exception as e:
+        out["tip"] = f"Ollama is installed but not running ({e}). Start it: 'ollama serve' or launch the Ollama app."
+
+    return out
 
 
 @app.get("/attack/version")
@@ -1752,8 +1915,10 @@ Response style:
 
         full_prompt = f"{context_text}\n\nStudent: {req.message}"
 
+        chosen_model = get_ollama_model()
+        logging.info(f"[assistant] Using Ollama model: {chosen_model}")
         response = ollama.chat(
-            model='llama3.1:8b',   # User can change this in their Ollama setup
+            model=chosen_model,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": full_prompt}
@@ -1774,6 +1939,7 @@ Response style:
         )
 
     except Exception as e:
+        logging.warning(f"[assistant] Ollama path failed, falling back to rules: {e}")
         # Strong rule-based fallback with kill chain awareness
         if "kill chain" in message or "cyber kill chain" in message:
             reply = "A typical Cyber Kill Chain has 7 stages: Reconnaissance, Weaponization, Delivery, Exploitation, Installation, Command & Control, Actions on Objectives. In ATT&CK terms we map these to tactics like Recon, Initial Access, Execution, Persistence, etc. Would you like me to help build a full kill chain for your current target?"
@@ -1861,8 +2027,10 @@ Output ONLY valid JSON matching this exact schema (no markdown, no extra text):
 
         full_prompt = f"{context_text}\n\nUser request: {req.message or 'Create a complete kill chain for this operation.'}"
 
+        chosen_model = get_ollama_model()
+        logging.info(f"[plan_kill_chain] Using Ollama model: {chosen_model}")
         response = ollama.chat(
-            model='llama3.1:8b',
+            model=chosen_model,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": full_prompt}
