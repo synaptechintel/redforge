@@ -19,14 +19,26 @@
 #    -SkipNpmInstall : reuse existing node_modules
 #    -SkipFrontend   : skip vite build (use existing dist/)
 #    -DevSign        : self-sign the installer for local testing
+#    -AssumeYes      : answer 'yes' to all prompts (for CI / non-interactive)
 # ============================================================================
 
 param(
     [switch]$SkipSidecar,
     [switch]$SkipNpmInstall,
     [switch]$SkipFrontend,
-    [switch]$DevSign
+    [switch]$DevSign,
+    [switch]$AssumeYes
 )
+
+# Prompt helper that auto-continues when -AssumeYes or non-interactive
+function Confirm-Continue($message) {
+    if ($AssumeYes -or -not [Environment]::UserInteractive) {
+        Write-Host "  $message -> auto-yes (-AssumeYes / non-interactive)" -ForegroundColor DarkGray
+        return $true
+    }
+    $answer = Read-Host $message
+    return ($answer -eq "y")
+}
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
@@ -56,8 +68,43 @@ if ($ProjectRoot -match "[()\s]") {
     Warn "This often breaks `pip install impacket`."
     Warn "Recommend moving the project to a clean path like C:\dev\redforge"
     Write-Host ""
-    $confirm = Read-Host "Continue anyway? (y/N)"
-    if ($confirm -ne "y") { exit 1 }
+    if (-not (Confirm-Continue "Continue anyway? (y/N)")) { exit 1 }
+}
+
+# ─── 1b. Windows Defender exclusion (CRITICAL for impacket) ───────────
+# impacket is a credential-dumping toolkit. Windows Defender quarantines
+# its files (__init__.py, GetNPUsers.py, etc.) IN REAL TIME as pip writes
+# them, which makes `pip install impacket` fail on a fresh machine.
+# We try to add a Defender exclusion for the project folder. This needs
+# admin; if we don't have it, we print clear manual instructions.
+if ($IsWindows -or $env:OS -eq "Windows_NT") {
+    $alreadyExcluded = $false
+    try {
+        $excl = (Get-MpPreference -ErrorAction Stop).ExclusionPath
+        if ($excl -and ($excl -contains $ProjectRoot)) { $alreadyExcluded = $true }
+    } catch { }
+
+    if ($alreadyExcluded) {
+        OK "Windows Defender exclusion already present for project folder"
+    } else {
+        try {
+            Add-MpPreference -ExclusionPath $ProjectRoot -ErrorAction Stop
+            OK "Added Windows Defender exclusion for project folder (impacket-safe)"
+        } catch {
+            Warn "Could not add a Windows Defender exclusion (not running as admin)."
+            Warn "impacket may be quarantined during install, causing 'pip install' to fail with:"
+            Warn "  OSError: [Errno 22] Invalid argument: '...\impacket\__init__.py'"
+            Write-Host ""
+            Write-Host "  RECOMMENDED ONE-TIME FIX (pick one):" -ForegroundColor Yellow
+            Write-Host "    A) Run this build from an ADMIN PowerShell once - it will auto-add the exclusion." -ForegroundColor Gray
+            Write-Host "    B) Manually add an exclusion: Windows Security > Virus & threat protection >" -ForegroundColor Gray
+            Write-Host "       Manage settings > Exclusions > Add a folder > $ProjectRoot" -ForegroundColor Gray
+            Write-Host "    C) Or download the prebuilt installer instead (no build needed):" -ForegroundColor Gray
+            Write-Host "       https://github.com/synaptechintel/redforge/releases/latest" -ForegroundColor Gray
+            Write-Host ""
+            if (-not (Confirm-Continue "Continue and attempt the build anyway? (y/N)")) { exit 1 }
+        }
+    }
 }
 
 # ─── 2. Prerequisites ────────────────────────────────────────────────
@@ -172,13 +219,47 @@ if (-not (Test-Path $activate)) { Die "venv activate script not found at $activa
 if (-not $SkipSidecar) {
     Info "Upgrading pip + installing sidecar dependencies..."
     & python -m pip install --upgrade pip --quiet
-    & python -m pip install -r sidecar\requirements.txt
-    if ($LASTEXITCODE -ne 0) { Die "sidecar pip install failed" }
-    OK "Sidecar deps installed"
+
+    # impacket ships CLI script wrappers (GetNPUsers.py, etc.) that Windows
+    # Defender briefly QUARANTINES during install - causing pip to fail with
+    # "[Errno 22] Invalid argument: '...\GetNPUsers.py'" even though the actual
+    # LIBRARY installed fine. We retry a few times (Defender releases the lock),
+    # then verify by importing the critical modules rather than trusting pip's
+    # exit code. See CONTEXT.md gotcha #4.
+    $maxAttempts = 3
+    $installed = $false
+    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+        Info "pip install attempt $attempt/$maxAttempts..."
+        & python -m pip install -r sidecar\requirements.txt 2>&1 | Out-Host
+        if ($LASTEXITCODE -eq 0) { $installed = $true; break }
+
+        # pip failed - check if it was just the script-wrapper lock by trying
+        # to import the real libraries. If they import, we're actually fine.
+        Info "pip returned non-zero - verifying whether libraries actually imported..."
+        & python -c "import impacket, winrm, fastapi, uvicorn, ollama, stix2, aiosqlite, structlog, reportlab" 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            Warn "pip reported an error (likely Defender locking impacket CLI scripts) but all libraries import correctly. Continuing."
+            $installed = $true
+            break
+        }
+
+        if ($attempt -lt $maxAttempts) {
+            Warn "Libraries not yet importable. Waiting 5s for Defender to release locks, then retrying..."
+            Start-Sleep -Seconds 5
+        }
+    }
+    if (-not $installed) {
+        Die "sidecar pip install failed after $maxAttempts attempts AND libraries do not import.`n`n  If this is the impacket/GetNPUsers.py Defender lock: add an exclusion for this folder in Windows Security, or run the build again (Defender usually releases the lock after the first scan)."
+    }
+    OK "Sidecar deps installed (verified by import)"
 
     Info "Installing PyInstaller..."
     & python -m pip install --quiet "pyinstaller>=6.0.0"
-    if ($LASTEXITCODE -ne 0) { Die "PyInstaller install failed" }
+    if ($LASTEXITCODE -ne 0) {
+        # PyInstaller has no AV-sensitive scripts, but verify import to be safe
+        & python -c "import PyInstaller" 2>$null
+        if ($LASTEXITCODE -ne 0) { Die "PyInstaller install failed" }
+    }
     OK "PyInstaller ready"
 
     # ─── 6. Bundle sidecar with PyInstaller ────────────────────────
@@ -235,11 +316,37 @@ if (-not $SkipSidecar) {
 # ─── 8. Tauri build ──────────────────────────────────────────────────
 Section "Tauri build (Rust compile + NSIS installer)"
 
-Info "Running npm run tauri build... (first run takes 5-15 min for Rust)"
+# tauri.conf.json has `createUpdaterArtifacts: true` so official releases get
+# signed auto-update artifacts. That REQUIRES the signing private key. Two cases:
+#   1. The signing key exists locally (~/.tauri/redforge-updater.key) - use it,
+#      producing signed .sig files the in-app updater will accept.
+#   2. No key (typical contributor build) - we override createUpdaterArtifacts
+#      to false so the build still succeeds and produces a working installer
+#      (just without auto-update signing). The installer itself is identical.
+$signingKey = Join-Path $env:USERPROFILE ".tauri\redforge-updater.key"
+$tauriArgs = @("run", "tauri", "build")
+
+if (Test-Path $signingKey) {
+    OK "Updater signing key found - building signed updater artifacts"
+    $env:TAURI_SIGNING_PRIVATE_KEY = (Get-Content $signingKey -Raw)
+    if (-not $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD) {
+        # Default dev password (CHANGE for production - see CONTEXT.md)
+        $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = "redforge-updater-dev-password"
+    }
+} else {
+    Warn "No updater signing key at $signingKey"
+    Warn "Building WITHOUT signed updater artifacts (installer still works fully)."
+    Warn "Auto-update will be unavailable in this build. To enable it, generate a key:"
+    Warn "  npx @tauri-apps/cli signer generate -w `"$signingKey`" -p `"<password>`""
+    # Override createUpdaterArtifacts to false so the build doesn't demand a key.
+    $tauriArgs += @("--", "--config", '{"bundle":{"createUpdaterArtifacts":false}}')
+}
+
+Info "Running npm $($tauriArgs -join ' ')... (first run takes 5-15 min for Rust)"
 Info "All subsequent runs are much faster (incremental compilation)"
 Write-Host ""
 
-& npm run tauri build
+& npm @tauriArgs
 if ($LASTEXITCODE -ne 0) { Die "tauri build failed" }
 
 # ─── 9. Report outputs ──────────────────────────────────────────────

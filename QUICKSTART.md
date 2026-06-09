@@ -125,6 +125,33 @@ This is the #1 cause of "sidecar dependencies failed" errors.
 
 ---
 
+## ⚠ IMPORTANT: Windows Defender + impacket (building from source only)
+
+**This only matters if you BUILD from source. If you just downloaded the installer, skip this.**
+
+RedForge bundles `impacket` — a real credential-dumping toolkit. **Windows Defender
+quarantines impacket's files in real time as pip writes them**, which makes
+`pip install` fail with:
+
+```
+OSError: [Errno 22] Invalid argument: '...\impacket\__init__.py'
+```
+
+**The fix (one-time):** add a Defender exclusion for your project folder.
+
+- **Easiest:** run `Build-Release.bat` from an **Administrator** PowerShell once — the
+  build script auto-adds the exclusion for you.
+- **Manual:** Windows Security → Virus & threat protection → Manage settings →
+  Exclusions → Add or remove exclusions → Add a folder → select your `redforge` folder.
+
+After the exclusion is in place, the build works every time.
+
+> **Don't want to deal with this?** Just download the prebuilt installer instead —
+> it already has impacket bundled and signed, no build needed:
+> **https://github.com/synaptechintel/redforge/releases/latest**
+
+---
+
 ## STEP 3: Launch RedForge (ONE CLICK)
 
 ### Option A: Double-click (easiest)

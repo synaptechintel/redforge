@@ -83,9 +83,18 @@ name = (m.get("model") or m.get("name")) if isinstance(m, dict) else (getattr(m,
 
 **Cause:** Windows Defender quarantines impacket files (it's a credential-dumping toolkit). The library MAY install successfully and just the CLI scripts get blocked — but sometimes `__init__.py` gets quarantined too.
 
-**Fix:** Retry the install. If `__init__.py` is missing after install, run `pip install --force-reinstall --no-deps impacket`. If that also fails partway, the lib files might still install (PyInstaller will work) even if script wrappers don't. Verify with `python -c "import impacket"`.
+**Two variants:**
+- **Mild:** only CLI script wrappers (`GetNPUsers.py`) get locked. The library imports fine. pip exits non-zero but you can ignore it.
+- **Harsh:** `impacket\__init__.py` itself gets quarantined in real time. The library genuinely doesn't import. Force-reinstall just re-triggers the quarantine. **The only reliable fix is a Defender exclusion.**
 
-**Prevention:** Add `redforge-sidecar.exe` + the source folder to Defender exclusions during development.
+**Fix:**
+1. **Best (permanent):** Add a Defender exclusion for the project folder. Requires admin: `Add-MpPreference -ExclusionPath C:\path\to\redforge`. `productize.ps1` now does this automatically at step 1b IF run as admin; otherwise it prints manual instructions.
+2. Retry the install (mild variant: Defender releases the lock after first scan).
+3. `productize.ps1` now retries 3× and verifies by `import impacket, winrm, ...` rather than trusting pip's exit code.
+
+**Why `rftest` venv works but fresh clones don't:** the `rftest` folder has a Defender exclusion (or Defender "settled" on those files long ago). Fresh clones in non-excluded folders hit real-time quarantine.
+
+**Prevention:** Add the project folder to Defender exclusions before the first build. Documented prominently in QUICKSTART.md now. For end users: tell them to download the prebuilt installer (impacket already bundled + the sidecar is one self-contained exe, no separate impacket files for Defender to quarantine at runtime).
 
 ### 5. Tauri 2 API changes
 
