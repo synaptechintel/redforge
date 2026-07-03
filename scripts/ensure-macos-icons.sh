@@ -6,7 +6,7 @@ ICON_DIR="$ROOT/src-tauri/icons"
 ICONSET="$ICON_DIR/icon.iconset"
 mkdir -p "$ICON_DIR"
 
-python3 - <<'PY'
+REDFORGE_ICON_DIR="$ICON_DIR" python3 - <<'PY'
 from __future__ import annotations
 
 import os
@@ -14,13 +14,11 @@ import struct
 import zlib
 from pathlib import Path
 
-root = Path(__file__).resolve().parents[1] if '__file__' in globals() else Path.cwd()
-icon_dir = root / 'src-tauri' / 'icons'
+icon_dir = Path(os.environ['REDFORGE_ICON_DIR']).resolve()
 icon_dir.mkdir(parents=True, exist_ok=True)
 
 def write_png(path: Path, size: int) -> None:
-    if path.exists():
-        return
+    # Always rewrite generated placeholders so a previously bad/partial run is repaired.
     rows = []
     for y in range(size):
         row = bytearray([0])
@@ -63,6 +61,11 @@ def write_png(path: Path, size: int) -> None:
 for size, name in [(32, '32x32.png'), (128, '128x128.png'), (256, '128x128@2x.png'), (1024, 'icon_1024.png')]:
     write_png(icon_dir / name, size)
 PY
+
+if [[ ! -f "$ICON_DIR/icon_1024.png" ]]; then
+  echo "Failed to generate $ICON_DIR/icon_1024.png" >&2
+  exit 1
+fi
 
 rm -rf "$ICONSET"
 mkdir -p "$ICONSET"
