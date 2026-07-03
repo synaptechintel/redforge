@@ -33,12 +33,20 @@ else
   npm install
 fi
 
-log "[4/7] Building Python sidecar binary..."
+log "[4/7] Building Python sidecar binary in local venv..."
 pushd sidecar >/dev/null
-python3 -m pip install --upgrade pip
-python3 -m pip install -r requirements.txt pyinstaller
+VENV_DIR="$ROOT/sidecar/.venv-macos-build"
+PYTHON_BIN="$VENV_DIR/bin/python"
+
+if [[ ! -x "$PYTHON_BIN" ]]; then
+  rm -rf "$VENV_DIR"
+  python3 -m venv "$VENV_DIR"
+fi
+
+"$PYTHON_BIN" -m pip install --upgrade pip
+"$PYTHON_BIN" -m pip install -r requirements.txt pyinstaller
 rm -rf dist build
-python3 -m PyInstaller redforge-sidecar.spec --clean --noconfirm
+"$PYTHON_BIN" -m PyInstaller redforge-sidecar.spec --clean --noconfirm
 [[ -x "dist/redforge-sidecar/redforge-sidecar" ]] || fail "Expected sidecar binary missing: sidecar/dist/redforge-sidecar/redforge-sidecar"
 popd >/dev/null
 
